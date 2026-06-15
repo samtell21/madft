@@ -27,9 +27,11 @@ machine-facing API it will wire to.
   2. **Freedesktop subclass DAG** — the real inheritance (`text/html → text/plain`; a DAG, not a
      tree: multiple parents possible; plus *aliases* like `image/jpg → image/jpeg`). Surfaced as
      read-only "what you'd inherit if unset" annotation.
-- **Family metaphors are kept disjoint across the two trees** to prevent namespace confusion: the
-  subclass DAG uses `supertypes` / `ancestor_types` (mimetype-domain); the category tree uses
-  `subcategories` / `parent` (node-domain). No family word is shared between the two.
+- **Naming: disambiguation and consistency are sibling commitments.** Names are domain-distinct
+  *across* the two trees and metaphor-consistent *within* each tree — never mixed:
+  - subclass DAG (mimetype-domain): `supertypes` / `ancestor_types`.
+  - category tree (node-domain): `supercategory` / `subcategories` (super/sub metaphor; deliberately
+    *not* paired with family terms like `parent`/`children`).
 - **"App X handles type T" = exact `MimeType=` declaration** in X's desktop file. This governs
   both the applicable-apps query and the block-on-set guard. Never subclass, never inheritance.
 - **Notation (three delimiters, three meanings):**
@@ -56,7 +58,7 @@ of the CLI and reusable by ptui later (shell-out now; possible direct linking la
 | `mimedb` | freedesktop MIME facts (subclass DAG) | `…/mime/{types,subclasses,aliases}` (user + system) | `all_types()`, `canonicalize(alias)`, `supertypes(t)` (direct subclass parents), `ancestor_types(t)` (transitive closure = inherit-if-unset chain), `comment(t)` (best-effort, lazy) |
 | `appindex` | exact-declaration authority | one pass over `$XDG_DATA_HOME:$XDG_DATA_DIRS` `/applications/*.desktop` (`Name`, `NoDisplay`, `MimeType=`) | `apps_for_type(t)`, `declares(id,t)`, `app(id)` |
 | `defaults` | effective current default | the `mimeapps.list` precedence chain | `current_default(t) -> Option<DesktopId>` |
-| `categories` | layered category tree | `Source` trait → `FileSource{defaults, overrides}` (future `RemoteSource`) | `tree()`, `types_under(id)`, `node_by_path(path)`, `path(id)` |
+| `categories` | layered category tree | `Source` trait → `FileSource{defaults, overrides}` (future `RemoteSource`) | `tree()`, `types_under(id)`, `subcategories(id)`, `node_by_path(path)`, `path(id)`, `roots()` |
 | `writer` | mutate user defaults | — | pure `apply(content, edits) -> content`; IO wrapper adds atomic-replace + `.bak` |
 | `engine` | orchestrate the above into operations | — | `ls`, `types`, `info`, `apps`, `set`, `unset`, `get` |
 | `cli` | clap subcommands; human vs `--json` render | — | — |
@@ -65,10 +67,19 @@ of the CLI and reusable by ptui later (shell-out now; possible direct linking la
 - `MimeType(String)` — always alias-canonicalized.
 - `DesktopId(String)` — desktop-file basename (`mpv.desktop`).
 - `App { id: DesktopId, name: String, nodisplay: bool, mimetypes: Set<MimeType> }`.
-- Category tree — **arena / index model** (explicit parent links, no stored dotted path):
-  - `CategoryId(usize)` — a handle into the arena.
-  - `CategoryNode { name: String, parent: Option<CategoryId>, subcategories: Vec<CategoryId>, types: Vec<MimeType> }` — `types` is present on **every** node (interior nodes can own types directly, not just leaves).
-  - `CategoryTree { arena: Vec<CategoryNode>, root: CategoryId }`, exposing `path(id) -> String` (derived by walking `parent`, names joined by `.`) and `node_by_path(&str) -> Option<CategoryId>` (for CLI path args). The dotted path is always *computed*, never stored.
+- Category tree — **minimal arena model**; the only essential per-node info is *id, name,
+  supercategory-id, types*. Nothing derivable is stored:
+  - `CategoryId(usize)` — index into the arena; this *is* the node id, defined once (never duplicated
+    inside the node).
+  - `CategoryNode { name: String, supercategory: Option<CategoryId>, types: Vec<MimeType> }` — `types`
+    on **every** node (interior nodes own types too, not just leaves); top-level nodes have
+    `supercategory == None`.
+  - `CategoryTree { arena: Vec<CategoryNode> }`, exposing only *derived* accessors:
+    - `path(id) -> String` — walk `supercategory`, join names with `.`.
+    - `subcategories(id) -> Vec<CategoryId>` — scan for nodes whose `supercategory == Some(id)`.
+    - `node_by_path(&str) -> Option<CategoryId>`; `roots() -> Vec<CategoryId>` (`supercategory == None`).
+  - The tree's shape lives in exactly one place — each node's `supercategory`. No stored
+    `subcategories` vec, no stored dotted `path`; both are derived, so nothing can drift out of agreement.
 - `TypeInfo { mime, comment: Option<String>, current_default: Option<DesktopId>, applicable_count: usize, ancestor_types: Vec<MimeType> }`.
 
 ## 4. Category model (the layered merge)
@@ -92,8 +103,16 @@ placement** — this is enforced:
   placement, else `Other`.
 
 Umbrella membership is distinct from direct placement: a type directly placed in `Media.Video` is
-also "under" `Media`. `types_under(node)` returns the recursive union over a node and its
+also "under" `Media`. `types_under(id)` returns the recursive union over a node and its
 `subcategories`.
+
+**Structure is validated at the source, not in Rust.** The Rust types deliberately enforce no tree
+invariant (keeping them minimal). Acyclicity is guaranteed upstream: the loader derives each node's
+`supercategory` from its dotted-path *prefix* (`Media.Video` → `Media`), which is acyclic by
+construction, so `path(id)` always terminates. The TOML loader is the single validation point
+(single-placement, category-name charset, supercategory-exists); a future non-dotted `Source` must uphold
+the same invariant. If traversal cost ever matters, a transient child-index may be built on load as
+a pure cache of the `supercategory` data — never as stored model state.
 
 The `Source` trait abstracts "load the default tree" so the file source can later be swapped for a
 remote, community-maintained DB (which would fetch + cache into the same data-dir file). MVP ships
