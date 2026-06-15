@@ -1,0 +1,4 @@
+[Default Applications]
+text/html=org.qutebrowser.qutebrowser.desktop
+video/mp4=mpv.desktop
+text/plain=nvim.desktop
