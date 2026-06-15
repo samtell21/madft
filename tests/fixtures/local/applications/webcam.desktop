@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=Webcam HOME
+Type=Application
+Exec=/home/u/.local/bin/cam
+MimeType=video/mp4;

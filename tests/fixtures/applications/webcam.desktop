@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=Webcam SYSTEM
+Type=Application
+Exec=cam
+MimeType=video/mp4;
