@@ -27,6 +27,9 @@ machine-facing API it will wire to.
   2. **Freedesktop subclass DAG** — the real inheritance (`text/html → text/plain`; a DAG, not a
      tree: multiple parents possible; plus *aliases* like `image/jpg → image/jpeg`). Surfaced as
      read-only "what you'd inherit if unset" annotation.
+- **Family metaphors are kept disjoint across the two trees** to prevent namespace confusion: the
+  subclass DAG uses `supertypes` / `ancestor_types` (mimetype-domain); the category tree uses
+  `subcategories` / `parent` (node-domain). No family word is shared between the two.
 - **"App X handles type T" = exact `MimeType=` declaration** in X's desktop file. This governs
   both the applicable-apps query and the block-on-set guard. Never subclass, never inheritance.
 - **Notation (three delimiters, three meanings):**
@@ -50,10 +53,10 @@ of the CLI and reusable by ptui later (shell-out now; possible direct linking la
 
 | Module | Job | Reads | Key API |
 |---|---|---|---|
-| `mimedb` | freedesktop MIME facts | `…/mime/{types,subclasses,aliases}` (user + system) | `all_types()`, `canonicalize(alias)`, `parents(t)`, `ancestors(t)` (transitive DAG), `comment(t)` (best-effort, lazy) |
+| `mimedb` | freedesktop MIME facts (subclass DAG) | `…/mime/{types,subclasses,aliases}` (user + system) | `all_types()`, `canonicalize(alias)`, `supertypes(t)` (direct subclass parents), `ancestor_types(t)` (transitive closure = inherit-if-unset chain), `comment(t)` (best-effort, lazy) |
 | `appindex` | exact-declaration authority | one pass over `$XDG_DATA_HOME:$XDG_DATA_DIRS` `/applications/*.desktop` (`Name`, `NoDisplay`, `MimeType=`) | `apps_for_type(t)`, `declares(id,t)`, `app(id)` |
 | `defaults` | effective current default | the `mimeapps.list` precedence chain | `current_default(t) -> Option<DesktopId>` |
-| `categories` | layered category tree | `Source` trait → `FileSource{defaults, overrides}` (future `RemoteSource`) | `tree()`, `types_under(node)`, `node(path)` |
+| `categories` | layered category tree | `Source` trait → `FileSource{defaults, overrides}` (future `RemoteSource`) | `tree()`, `types_under(id)`, `node_by_path(path)`, `path(id)` |
 | `writer` | mutate user defaults | — | pure `apply(content, edits) -> content`; IO wrapper adds atomic-replace + `.bak` |
 | `engine` | orchestrate the above into operations | — | `ls`, `types`, `info`, `apps`, `set`, `unset`, `get` |
 | `cli` | clap subcommands; human vs `--json` render | — | — |
@@ -62,8 +65,11 @@ of the CLI and reusable by ptui later (shell-out now; possible direct linking la
 - `MimeType(String)` — always alias-canonicalized.
 - `DesktopId(String)` — desktop-file basename (`mpv.desktop`).
 - `App { id: DesktopId, name: String, nodisplay: bool, mimetypes: Set<MimeType> }`.
-- `CategoryNode { name: String, path: String /* dotted */, children: Vec<CategoryNode>, types: Vec<MimeType> }`.
-- `TypeInfo { mime, comment: Option<String>, current_default: Option<DesktopId>, applicable_count: usize, ancestors: Vec<MimeType> }`.
+- Category tree — **arena / index model** (explicit parent links, no stored dotted path):
+  - `CategoryId(usize)` — a handle into the arena.
+  - `CategoryNode { name: String, parent: Option<CategoryId>, subcategories: Vec<CategoryId>, types: Vec<MimeType> }` — `types` is present on **every** node (interior nodes can own types directly, not just leaves).
+  - `CategoryTree { arena: Vec<CategoryNode>, root: CategoryId }`, exposing `path(id) -> String` (derived by walking `parent`, names joined by `.`) and `node_by_path(&str) -> Option<CategoryId>` (for CLI path args). The dotted path is always *computed*, never stored.
+- `TypeInfo { mime, comment: Option<String>, current_default: Option<DesktopId>, applicable_count: usize, ancestor_types: Vec<MimeType> }`.
 
 ## 4. Category model (the layered merge)
 
@@ -76,8 +82,18 @@ tree = defaults                       # maintained/shared placements
        ← Other:<type>                 # any mimedb type still unplaced (flat catch-all)
 ```
 
-Precedence per type: **override > default > Other**. A type lives in exactly one category node
-(last writer wins between override and default; Other only if neither placed it).
+Precedence per type: **override > default > Other**. **A mimetype has exactly one direct
+placement** — this is enforced:
+- Within a single source file, a type appearing under two category paths is a load error
+  (`DuplicatePlacement`).
+- Across layers, an `overrides` placement *supersedes* the `defaults` placement (this is the
+  intended re-placement mechanism, not a conflict).
+- After the merge, the type's single home is: its `overrides` placement if any, else its `defaults`
+  placement, else `Other`.
+
+Umbrella membership is distinct from direct placement: a type directly placed in `Media.Video` is
+also "under" `Media`. `types_under(node)` returns the recursive union over a node and its
+`subcategories`.
 
 The `Source` trait abstracts "load the default tree" so the file source can later be swapped for a
 remote, community-maintained DB (which would fetch + cache into the same data-dir file). MVP ships
@@ -92,6 +108,9 @@ Both use the same TOML grammar — a table per dotted category path mapping to a
 
 ```toml
 # categories.toml (defaults) — and overrides.toml (same grammar)
+["Media"]
+types = ["application/ogg"]      # interior nodes may own types directly, not just leaves
+
 ["Media.Video"]
 types = ["video/mp4", "video/x-matroska", "video/webm"]
 
@@ -105,8 +124,10 @@ types = ["application/pdf", "application/epub+zip"]
 types = ["image/png", "image/jpeg", "image/gif", "image/webp"]
 ```
 
-Hierarchy is implied by dotted keys (`Media` is the parent of `Media.Video`). An override file
-listing a type under a different node moves it there; new category paths simply appear.
+Hierarchy is implied by dotted keys (`Media` is the parent of `Media.Video`), and a node may carry
+its own `types` at any level. An override file listing a type under a different node moves it there
+(supersedes the default placement); new category paths simply appear. A type listed under two paths
+within the same file is a load error (single-placement, see §2).
 
 ## 5. Command surface
 
@@ -116,7 +137,7 @@ clap-based. Every command supports human output (default) and `--json` (the ptui
 |---|---|
 | `madft ls [PATH]` | children categories + leaf types at a node (root if no PATH); each leaf annotated with current default + applicable-app count |
 | `madft types <PATH>` | all mimetypes under the umbrella, recursive + canonicalized |
-| `madft info <mimetype>` | canonical name (+ aliases), comment, current default, `ancestors` (inherit-if-unset chain), applicable apps (exact-decl) |
+| `madft info <mimetype>` | canonical name (+ aliases), comment, current default, `ancestor_types` (inherit-if-unset chain), applicable apps (exact-decl) |
 | `madft apps <PATH\|mimetype>` | applicable apps under the umbrella; per app: which & how many of the umbrella's types it declares, sorted by coverage |
 | `madft set <PATH\|mimetype> <app> [--types t1,t2,…] [--dry-run]` | set `<app>` default for the umbrella's types it declares; `--types` restricts to a subset; **guards** if app declares none; `--dry-run` prints the plan without writing |
 | `madft unset <mimetype>` | remove a user default for the type |
@@ -145,7 +166,8 @@ clap-based. Every command supports human output (default) and `--json` (the ptui
 ## 7. Error model
 
 Typed errors (`thiserror`): `UnknownPath`, `UnknownApp`, `AppHandlesNothingUnderUmbrella`
-(the block-on-set guard), `InvalidCategoryName`, `MimeDbNotFound`, `Io`, `Parse`.
+(the block-on-set guard), `InvalidCategoryName`, `DuplicatePlacement` (a type placed under two
+categories within one source file), `MimeDbNotFound`, `Io`, `Parse`.
 
 - Human → clear stderr message + non-zero exit; `--json` → `{"error": {kind, message}}`.
 - **Partial coverage is success, not error** (the mpv-in-Media case).
