@@ -131,4 +131,4 @@ Deferred by design: a remote/community category database (the `Source` trait sea
 
 ## License
 
-No license chosen yet — add one (e.g. MIT or Apache-2.0) before distributing publicly.
+[MIT](LICENSE) © samtell
