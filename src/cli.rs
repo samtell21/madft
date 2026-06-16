@@ -167,20 +167,20 @@ pub fn execute(engine: &Engine, command: &Command, json: bool) -> Outcome {
 
 fn human_ls(r: &LsResult) -> String {
     let both = !r.subcategories.is_empty() && !r.types.is_empty();
-    let (cat_prefix, type_prefix) = if both { ("  ", "  ") } else { ("", "") };
+    let indent = if both { "  " } else { "" };
     let mut s = String::new();
     if both {
         s.push_str("categories:\n");
     }
     for sub in &r.subcategories {
-        s.push_str(&format!("{cat_prefix}{sub}\n"));
+        s.push_str(&format!("{indent}{sub}\n"));
     }
     if both {
         s.push_str("types:\n");
     }
     for t in &r.types {
         let def = t.current_default.as_deref().unwrap_or("(none)");
-        s.push_str(&format!("{type_prefix}{}  [default: {def}, apps: {}]\n", t.mime, t.applicable_count));
+        s.push_str(&format!("{indent}{}  [default: {def}, apps: {}]\n", t.mime, t.applicable_count));
     }
     s.trim_end().to_string()
 }
@@ -439,6 +439,22 @@ mod tests {
         assert_eq!(v["types"][0]["mime"], "video/mp4");
         assert_eq!(v["types"][0]["is_default"], true);
         assert_eq!(v["types"][0]["category"], "Media.Video");
+    }
+
+    #[test]
+    fn set_no_clobber_human_shows_kept_line() {
+        // video/mp4 is already mpv in the fixture; --no-clobber keeps it.
+        let cmd = Command::Set {
+            app: "mpv".to_string(),
+            target: Some("Media".to_string()),
+            types: vec![],
+            force: false,
+            no_clobber: true,
+            dry_run: true,
+        };
+        let out = execute(&engine(), &cmd, false);
+        assert_eq!(out.code, 0);
+        assert!(out.stdout.contains("kept (already set): video/mp4"));
     }
 
     #[test]
