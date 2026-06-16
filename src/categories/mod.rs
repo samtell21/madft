@@ -8,3 +8,5 @@
 mod merge;
 mod source;
 mod tree;
+
+pub use tree::{CategoryId, CategoryNode, CategoryTree};
