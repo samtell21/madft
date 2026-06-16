@@ -129,7 +129,7 @@ cargo clippy --all-targets -- -D warnings   # lints clean
 
 ## Not (yet) included
 
-Deferred by design: a remote/community category database (the `Source` trait seam exists), a TUI front-end, fuzzy app-name matching, `[Added]`/`[Removed]` management, multi-app fallback lists, file locking, and bulk "set everything unset" operations are now covered by `set --no-clobber`; a dedicated "list unset" query stays composable from the `--json`/`ls` reads.
+Deferred by design: a remote/community category database (the `Source` trait seam exists), a TUI front-end, fuzzy app-name matching, `[Added]`/`[Removed]` management, multi-app fallback lists, and file locking. Bulk "set everything unset" now ships as `set --no-clobber`; a dedicated "list unset" query stays composable from the `--json`/`ls` reads.
 
 ## License
 
