@@ -345,3 +345,181 @@ mod tests {
         assert_eq!(e.get("image/png"), None);
     }
 }
+
+impl Engine {
+    /// `set <PATH|mimetype> <app> [--types …] [--dry-run]`: set `app` as the
+    /// default for exactly the umbrella types it declares. Types the app does
+    /// NOT declare are reported as `skipped_types` (informational, not an error).
+    /// `types_filter`, when given, restricts the action to that subset of the
+    /// umbrella (each entry alias-canonicalized). Guards with
+    /// `AppHandlesNothingUnderUmbrella` if the app declares none of them.
+    pub fn set(
+        &self,
+        target: &str,
+        app: &str,
+        types_filter: Option<&[String]>,
+        dry_run: bool,
+    ) -> Result<SetPlan> {
+        let (label, umbrella) = self.resolve_umbrella(target)?;
+        let app_id = DesktopId::new(app);
+        if self.appindex.app(&app_id).is_none() {
+            return Err(Error::UnknownApp(app_id.to_string()));
+        }
+        let filter: Option<Vec<MimeType>> = types_filter.map(|fs| {
+            fs.iter()
+                .map(|s| self.mimedb.canonicalize(&MimeType::new(s.as_str())))
+                .collect()
+        });
+
+        let mut set_types: Vec<MimeType> = Vec::new();
+        let mut skipped: Vec<MimeType> = Vec::new();
+        for t in &umbrella {
+            if let Some(ref f) = filter
+                && !f.contains(t) {
+                continue; // outside the --types restriction: ignore entirely
+            }
+            if self.appindex.declares(&app_id, t) {
+                set_types.push(t.clone());
+            } else {
+                skipped.push(t.clone());
+            }
+        }
+
+        if set_types.is_empty() {
+            return Err(Error::AppHandlesNothingUnderUmbrella {
+                app: app_id.to_string(),
+                umbrella: label,
+            });
+        }
+
+        let edits: Vec<crate::writer::Edit> = set_types
+            .iter()
+            .map(|t| crate::writer::Edit::Set(t.clone(), app_id.clone()))
+            .collect();
+        let written = if dry_run {
+            false
+        } else {
+            crate::writer::write_user_defaults(&self.roots.user_mimeapps(), &edits)?
+        };
+
+        Ok(SetPlan {
+            app: app_id.to_string(),
+            target: label,
+            set_types: set_types.iter().map(|t| t.to_string()).collect(),
+            skipped_types: skipped.iter().map(|t| t.to_string()).collect(),
+            dry_run,
+            written,
+        })
+    }
+
+    /// `unset <mimetype>`: remove the user default for the (canonicalized) type.
+    /// Returns whether a write occurred (false if there was nothing to remove).
+    pub fn unset(&self, mime: &str) -> Result<bool> {
+        let canon = self.mimedb.canonicalize(&MimeType::new(mime));
+        crate::writer::write_user_defaults(
+            &self.roots.user_mimeapps(),
+            &[crate::writer::Edit::Unset(canon)],
+        )
+    }
+}
+
+#[cfg(test)]
+mod write_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn fixtures() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+    }
+
+    /// An engine whose READS come from the committed fixtures but whose WRITE
+    /// target (`config_home`) is a fresh disposable temp dir seeded with a copy
+    /// of the fixture mimeapps.list.
+    fn engine_with_temp_config(tag: &str) -> (Engine, PathBuf) {
+        let cfg = std::env::temp_dir().join(format!("madft-engine-{tag}"));
+        let _ = std::fs::remove_dir_all(&cfg);
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::copy(
+            fixtures().join("engine/config/mimeapps.list"),
+            cfg.join("mimeapps.list"),
+        )
+        .unwrap();
+        let roots = Roots {
+            data_home: fixtures().join("engine"),
+            data_dirs: vec![fixtures()],
+            config_home: cfg.clone(),
+            config_dirs: vec![],
+        };
+        (Engine::load(&roots, &[]).unwrap(), cfg.join("mimeapps.list"))
+    }
+
+    fn read_only_engine() -> Engine {
+        let roots = Roots {
+            data_home: fixtures().join("engine"),
+            data_dirs: vec![fixtures()],
+            config_home: fixtures().join("engine/config"),
+            config_dirs: vec![],
+        };
+        Engine::load(&roots, &[]).unwrap()
+    }
+
+    #[test]
+    fn set_dry_run_partitions_without_writing() {
+        let e = read_only_engine();
+        let plan = e.set("Media", "mpv", None, true).unwrap();
+        assert_eq!(plan.set_types, vec!["audio/mpeg", "video/mp4", "video/x-matroska"]);
+        assert_eq!(plan.skipped_types, vec!["application/ogg", "image/png", "image/jpeg"]);
+        assert!(!plan.written);
+        assert!(plan.dry_run);
+    }
+
+    #[test]
+    fn set_guards_when_app_handles_nothing() {
+        let e = read_only_engine();
+        // nvim declares text/plain + text/html — neither is under Media.
+        let err = e.set("Media", "nvim", None, false).unwrap_err();
+        assert!(matches!(err, Error::AppHandlesNothingUnderUmbrella { .. }));
+    }
+
+    #[test]
+    fn set_unknown_app_errors() {
+        let e = read_only_engine();
+        assert!(matches!(e.set("Media", "nope", None, false), Err(Error::UnknownApp(_))));
+    }
+
+    #[test]
+    fn set_writes_backs_up_and_is_idempotent() {
+        let (e, path) = engine_with_temp_config("set");
+        let plan = e.set("Media", "mpv", None, false).unwrap();
+        assert!(plan.written);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("audio/mpeg=mpv.desktop"));
+        assert!(content.contains("video/x-matroska=mpv.desktop"));
+        assert!(content.contains("video/mp4=mpv.desktop"));
+        assert!(content.contains("text/html=org.qutebrowser.qutebrowser.desktop"));
+        assert!(path.with_file_name("mimeapps.list.bak").exists());
+
+        let again = e.set("Media", "mpv", None, false).unwrap();
+        assert!(!again.written);
+    }
+
+    #[test]
+    fn set_with_types_filter_restricts() {
+        let (e, _path) = engine_with_temp_config("filter");
+        let only = ["video/mp4".to_string()];
+        let plan = e.set("Media", "mpv", Some(&only), true).unwrap();
+        assert_eq!(plan.set_types, vec!["video/mp4"]);
+        assert!(plan.skipped_types.is_empty());
+    }
+
+    #[test]
+    fn unset_removes_existing_default() {
+        let (e, path) = engine_with_temp_config("unset");
+        let wrote = e.unset("video/mp4").unwrap();
+        assert!(wrote);
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(!content.contains("video/mp4="));
+        assert!(!e.unset("video/mp4").unwrap());
+    }
+}
