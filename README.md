@@ -18,27 +18,16 @@ cargo install --path .          # installs `madft` to ~/.cargo/bin
 
 ## Quick start
 
-`madft` reads a **category tree** you author. Without one, every mimetype falls into a flat `Other` bucket (nothing is ever hidden), so `madft ls` shows only `Other`. Create a starter tree:
+`madft` works out of the box with a **built-in default category tree**, so `ls` shows sensible groups (Media, Images, Documents, Web, Archives…) immediately — no setup. Anything not placed in the tree falls into a flat `Other` node, so nothing is ever hidden.
 
-`~/.local/share/madft/categories.toml`
-```toml
-["Media.Video"]
-types = ["video/mp4", "video/x-matroska", "video/webm"]
+To customize, drop an editable copy of the default on disk and edit it (`overrides.toml` is also merged on top, if present):
 
-["Media.Audio"]
-types = ["audio/mpeg", "audio/flac", "audio/ogg"]
-
-["Images"]
-types = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"]
-
-["Documents"]
-types = ["application/pdf", "application/epub+zip", "text/plain"]
-
-["Web"]
-types = ["text/html", "application/xhtml+xml"]
+```bash
+madft init                                  # writes ~/.local/share/madft/categories.toml
+$EDITOR ~/.local/share/madft/categories.toml
 ```
 
-Then:
+Everyday use:
 
 ```bash
 madft ls                       # top-level categories
@@ -69,6 +58,7 @@ Add `--json` to any command for machine-readable output.
 | `get <mimetype>` | The bare current default id (empty if unset). Scriptable. |
 | `set <PATH\|mimetype> <app> [--types a,b] [-f/--force] [--dry-run]` | Set `app` as default for the umbrella's declared types. Reports skipped (undeclared) types — not an error. `--force` overrides the declaration guard; `--dry-run` previews. |
 | `unset <mimetype>` | Remove the user default for a type. |
+| `init [-f/--force]` | Write the built-in default category tree to `~/.local/share/madft/categories.toml` for editing (no-op if it exists, unless `--force`). |
 
 Exit codes: `0` success, `1` on an operational error (unknown path/app, guard), `2` on a usage error.
 
@@ -83,7 +73,7 @@ Exit codes: `0` success, `1` on an operational error (unknown path/app, guard), 
 
 | File | Role |
 |---|---|
-| `${XDG_DATA_HOME:-~/.local/share}/madft/categories.toml` | The category tree (shared/maintained layer). |
+| `${XDG_DATA_HOME:-~/.local/share}/madft/categories.toml` | The category tree (shared/maintained layer). If absent, a built-in default is used; `madft init` writes an editable copy here. |
 | `${XDG_CONFIG_HOME:-~/.config}/madft/overrides.toml` | Personal re-placements (same grammar; wins over the defaults layer). |
 | `${XDG_CONFIG_HOME:-~/.config}/mimeapps.list` | The **only** file `madft` writes (its `[Default Applications]` section). |
 
