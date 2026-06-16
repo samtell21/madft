@@ -548,3 +548,102 @@ mod write_tests {
         ));
     }
 }
+
+/// One declared mimetype in an `AppReport`.
+#[derive(serde::Serialize, Debug)]
+pub struct AppTypeRow {
+    pub mime: String,
+    pub category: Option<String>,
+    pub is_default: bool,
+    pub current_default: Option<String>,
+}
+
+/// Result of `app`: an app's declared types, where each lives, and which it is
+/// currently the default for.
+#[derive(serde::Serialize, Debug)]
+pub struct AppReport {
+    pub id: String,
+    pub name: String,
+    pub declares: usize,
+    pub default_for: usize,
+    pub types: Vec<AppTypeRow>,
+}
+
+impl Engine {
+    /// `app <id>`: the app's (canonical) declared mimetypes, the category each
+    /// falls in, and whether this app is currently the default for it. Rows are
+    /// ordered default-first, then by mimetype. Unknown app → `UnknownApp`.
+    pub fn app(&self, id: &str) -> Result<AppReport> {
+        let app_id = DesktopId::new(id);
+        let app = self
+            .appindex
+            .app(&app_id)
+            .ok_or_else(|| Error::UnknownApp(app_id.to_string()))?;
+
+        // Distinct canonical declared types.
+        let mut canon: Vec<MimeType> =
+            app.mimetypes.iter().map(|t| self.mimedb.canonicalize(t)).collect();
+        canon.sort();
+        canon.dedup();
+
+        let mut types: Vec<AppTypeRow> = canon
+            .iter()
+            .map(|t| {
+                let cur = self.defaults.current_default(t);
+                AppTypeRow {
+                    mime: t.to_string(),
+                    category: self.tree.category_of(t).map(|cid| self.tree.path(cid)),
+                    is_default: cur.as_ref() == Some(&app_id),
+                    current_default: cur.map(|d| d.to_string()),
+                }
+            })
+            .collect();
+        types.sort_by(|a, b| b.is_default.cmp(&a.is_default).then_with(|| a.mime.cmp(&b.mime)));
+
+        let default_for = types.iter().filter(|r| r.is_default).count();
+        Ok(AppReport {
+            id: app_id.to_string(),
+            name: app.name.clone(),
+            declares: types.len(),
+            default_for,
+            types,
+        })
+    }
+}
+
+#[cfg(test)]
+mod app_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn engine() -> Engine {
+        let f = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let roots = Roots {
+            data_home: f.join("engine"),
+            data_dirs: vec![f.clone()],
+            config_home: f.join("engine/config"),
+            config_dirs: vec![],
+        };
+        Engine::load(&roots, &[]).unwrap()
+    }
+
+    #[test]
+    fn app_reports_declared_types_defaults_and_categories() {
+        let e = engine();
+        let r = e.app("mpv").unwrap();
+        assert_eq!(r.id, "mpv.desktop");
+        assert_eq!(r.declares, 3);
+        assert_eq!(r.default_for, 1);
+        assert_eq!(r.types[0].mime, "video/mp4");
+        assert!(r.types[0].is_default);
+        assert_eq!(r.types[0].category.as_deref(), Some("Media.Video"));
+        let audio = r.types.iter().find(|t| t.mime == "audio/mpeg").unwrap();
+        assert!(!audio.is_default);
+        assert_eq!(audio.category.as_deref(), Some("Media.Audio"));
+    }
+
+    #[test]
+    fn app_unknown_errors() {
+        assert!(matches!(engine().app("nope"), Err(Error::UnknownApp(_))));
+    }
+}

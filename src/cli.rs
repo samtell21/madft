@@ -5,7 +5,7 @@
 
 use clap::{Parser, Subcommand};
 
-use crate::engine::{AppsResult, Engine, LsResult, SetPlan, TypeInfo};
+use crate::engine::{AppReport, AppsResult, Engine, LsResult, SetPlan, TypeInfo};
 use crate::error::Error;
 use crate::paths::Roots;
 
@@ -33,6 +33,8 @@ pub enum Command {
     Info { mimetype: String },
     /// List apps that can handle a category path or mimetype.
     Apps { target: String },
+    /// Show one app's declared types, their categories, and what it's default for.
+    App { id: String },
     /// Set an app as the default for a category path or mimetype.
     Set {
         target: String,
@@ -114,6 +116,10 @@ fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String,
             let r = engine.apps(target)?;
             if json { to_json(&r) } else { human_apps(&r) }
         }
+        Command::App { id } => {
+            let r = engine.app(id)?;
+            if json { to_json(&r) } else { human_app(&r) }
+        }
         Command::Set { target, app, types, force, dry_run } => {
             let filter = if types.is_empty() { None } else { Some(types.as_slice()) };
             let r = engine.set(target, app, filter, *force, *dry_run)?;
@@ -193,6 +199,21 @@ fn human_apps(r: &AppsResult) -> String {
             r.types.len(),
             a.declared_types.join(", ")
         ));
+    }
+    s.trim_end().to_string()
+}
+
+fn human_app(r: &AppReport) -> String {
+    let mut s = String::new();
+    s.push_str(&format!(
+        "{} ({}) — declares {} types, default for {}:\n",
+        r.id, r.name, r.declares, r.default_for
+    ));
+    for t in &r.types {
+        let star = if t.is_default { "★" } else { " " };
+        let cat = t.category.as_deref().unwrap_or("—");
+        let def = t.current_default.as_deref().unwrap_or("—");
+        s.push_str(&format!("  {star} {}  [{cat}]  (default: {def})\n", t.mime));
     }
     s.trim_end().to_string()
 }
@@ -341,5 +362,18 @@ mod tests {
         assert_eq!(v["set_types"], serde_json::json!(["audio/mpeg", "video/mp4", "video/x-matroska"]));
         assert_eq!(v["skipped_types"], serde_json::json!(["application/ogg", "image/png", "image/jpeg"]));
         assert_eq!(v["written"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn app_json_reports_rows() {
+        let out = execute(&engine(), &Command::App { id: "mpv".to_string() }, true);
+        assert_eq!(out.code, 0);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(v["id"], "mpv.desktop");
+        assert_eq!(v["declares"], 3);
+        assert_eq!(v["default_for"], 1);
+        assert_eq!(v["types"][0]["mime"], "video/mp4");
+        assert_eq!(v["types"][0]["is_default"], true);
+        assert_eq!(v["types"][0]["category"], "Media.Video");
     }
 }
