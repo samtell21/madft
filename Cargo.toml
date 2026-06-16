@@ -2,6 +2,7 @@
 name = "madft"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "Inspect and set XDG default applications via a curated category tree"
 
 [dependencies]

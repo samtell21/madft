@@ -381,10 +381,11 @@ impl Engine {
         let mut set_types: Vec<MimeType> = Vec::new();
         let mut skipped: Vec<MimeType> = Vec::new();
         for t in &umbrella {
-            if let Some(ref f) = filter
-                && !f.contains(t)
-            {
-                continue; // outside the --types restriction: ignore entirely
+            // Outside the --types restriction (filter present and type not in it):
+            // ignore entirely. Written without a `let`-chain to keep the MSRV at
+            // Rust 1.85 (edition 2024's floor); let-chains need 1.88.
+            if filter.as_ref().is_some_and(|f| !f.contains(t)) {
+                continue;
             }
             if force || self.appindex.declares(&app_id, t) {
                 set_types.push(t.clone());
