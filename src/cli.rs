@@ -40,6 +40,9 @@ pub enum Command {
         /// Restrict to a comma-separated subset of the umbrella's types.
         #[arg(long, value_delimiter = ',')]
         types: Vec<String>,
+        /// Set even types the app doesn't declare (override the guard).
+        #[arg(short = 'f', long)]
+        force: bool,
         /// Print the plan without writing.
         #[arg(long)]
         dry_run: bool,
@@ -83,7 +86,12 @@ fn render_error(e: &Error, json: bool) -> Outcome {
         });
         Outcome { code: 1, stdout: to_json(&body), stderr: String::new() }
     } else {
-        Outcome { code: 1, stdout: String::new(), stderr: format!("error: {e}") }
+        let hint = if matches!(e, Error::AppHandlesNothingUnderUmbrella { .. }) {
+            " (use --force to override)"
+        } else {
+            ""
+        };
+        Outcome { code: 1, stdout: String::new(), stderr: format!("error: {e}{hint}") }
     }
 }
 
@@ -106,9 +114,9 @@ fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String,
             let r = engine.apps(target)?;
             if json { to_json(&r) } else { human_apps(&r) }
         }
-        Command::Set { target, app, types, dry_run } => {
+        Command::Set { target, app, types, force, dry_run } => {
             let filter = if types.is_empty() { None } else { Some(types.as_slice()) };
-            let r = engine.set(target, app, filter, *dry_run)?;
+            let r = engine.set(target, app, filter, *force, *dry_run)?;
             if json { to_json(&r) } else { human_set(&r) }
         }
         Command::Unset { mimetype } => {
@@ -324,6 +332,7 @@ mod tests {
             target: "Media".to_string(),
             app: "mpv".to_string(),
             types: vec![],
+            force: false,
             dry_run: true,
         };
         let out = execute(&engine(), &cmd, true);

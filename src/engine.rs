@@ -80,6 +80,7 @@ pub struct SetPlan {
     pub target: String,
     pub set_types: Vec<String>,
     pub skipped_types: Vec<String>,
+    pub forced: bool,
     pub dry_run: bool,
     pub written: bool,
 }
@@ -351,17 +352,19 @@ mod tests {
 }
 
 impl Engine {
-    /// `set <PATH|mimetype> <app> [--types …] [--dry-run]`: set `app` as the
-    /// default for exactly the umbrella types it declares. Types the app does
-    /// NOT declare are reported as `skipped_types` (informational, not an error).
-    /// `types_filter`, when given, restricts the action to that subset of the
-    /// umbrella (each entry alias-canonicalized). Guards with
-    /// `AppHandlesNothingUnderUmbrella` if the app declares none of them.
+    /// `set <PATH|mimetype> <app> [--types …] [--force] [--dry-run]`: set `app`
+    /// as the default for the umbrella types it declares. Types the app does NOT
+    /// declare are reported as `skipped_types` (informational, not an error).
+    /// `types_filter`, when given, restricts to that subset (alias-canonicalized).
+    /// `force` overrides the exact-declaration guard — every targeted type is set
+    /// regardless of declaration (so nothing is skipped). Guards with
+    /// `AppHandlesNothingUnderUmbrella` if `set_types` ends up empty.
     pub fn set(
         &self,
         target: &str,
         app: &str,
         types_filter: Option<&[String]>,
+        force: bool,
         dry_run: bool,
     ) -> Result<SetPlan> {
         let (label, umbrella) = self.resolve_umbrella(target)?;
@@ -379,10 +382,11 @@ impl Engine {
         let mut skipped: Vec<MimeType> = Vec::new();
         for t in &umbrella {
             if let Some(ref f) = filter
-                && !f.contains(t) {
+                && !f.contains(t)
+            {
                 continue; // outside the --types restriction: ignore entirely
             }
-            if self.appindex.declares(&app_id, t) {
+            if force || self.appindex.declares(&app_id, t) {
                 set_types.push(t.clone());
             } else {
                 skipped.push(t.clone());
@@ -411,6 +415,7 @@ impl Engine {
             target: label,
             set_types: set_types.iter().map(|t| t.to_string()).collect(),
             skipped_types: skipped.iter().map(|t| t.to_string()).collect(),
+            forced: force,
             dry_run,
             written,
         })
@@ -436,9 +441,6 @@ mod write_tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
     }
 
-    /// An engine whose READS come from the committed fixtures but whose WRITE
-    /// target (`config_home`) is a fresh disposable temp dir seeded with a copy
-    /// of the fixture mimeapps.list.
     fn engine_with_temp_config(tag: &str) -> (Engine, PathBuf) {
         let cfg = std::env::temp_dir().join(format!("madft-engine-{tag}"));
         let _ = std::fs::remove_dir_all(&cfg);
@@ -470,31 +472,31 @@ mod write_tests {
     #[test]
     fn set_dry_run_partitions_without_writing() {
         let e = read_only_engine();
-        let plan = e.set("Media", "mpv", None, true).unwrap();
+        let plan = e.set("Media", "mpv", None, false, true).unwrap();
         assert_eq!(plan.set_types, vec!["audio/mpeg", "video/mp4", "video/x-matroska"]);
         assert_eq!(plan.skipped_types, vec!["application/ogg", "image/png", "image/jpeg"]);
         assert!(!plan.written);
         assert!(plan.dry_run);
+        assert!(!plan.forced);
     }
 
     #[test]
     fn set_guards_when_app_handles_nothing() {
         let e = read_only_engine();
-        // nvim declares text/plain + text/html — neither is under Media.
-        let err = e.set("Media", "nvim", None, false).unwrap_err();
+        let err = e.set("Media", "nvim", None, false, false).unwrap_err();
         assert!(matches!(err, Error::AppHandlesNothingUnderUmbrella { .. }));
     }
 
     #[test]
     fn set_unknown_app_errors() {
         let e = read_only_engine();
-        assert!(matches!(e.set("Media", "nope", None, false), Err(Error::UnknownApp(_))));
+        assert!(matches!(e.set("Media", "nope", None, false, false), Err(Error::UnknownApp(_))));
     }
 
     #[test]
     fn set_writes_backs_up_and_is_idempotent() {
         let (e, path) = engine_with_temp_config("set");
-        let plan = e.set("Media", "mpv", None, false).unwrap();
+        let plan = e.set("Media", "mpv", None, false, false).unwrap();
         assert!(plan.written);
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -504,7 +506,7 @@ mod write_tests {
         assert!(content.contains("text/html=org.qutebrowser.qutebrowser.desktop"));
         assert!(path.with_file_name("mimeapps.list.bak").exists());
 
-        let again = e.set("Media", "mpv", None, false).unwrap();
+        let again = e.set("Media", "mpv", None, false, false).unwrap();
         assert!(!again.written);
     }
 
@@ -512,7 +514,7 @@ mod write_tests {
     fn set_with_types_filter_restricts() {
         let (e, _path) = engine_with_temp_config("filter");
         let only = ["video/mp4".to_string()];
-        let plan = e.set("Media", "mpv", Some(&only), true).unwrap();
+        let plan = e.set("Media", "mpv", Some(&only), false, true).unwrap();
         assert_eq!(plan.set_types, vec!["video/mp4"]);
         assert!(plan.skipped_types.is_empty());
     }
@@ -525,5 +527,24 @@ mod write_tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(!content.contains("video/mp4="));
         assert!(!e.unset("video/mp4").unwrap());
+    }
+
+    #[test]
+    fn set_force_sets_undeclared_type() {
+        let e = read_only_engine();
+        // mpv does NOT declare image/png; --force sets it anyway (dry-run).
+        let plan = e.set("image/png", "mpv", None, true, true).unwrap();
+        assert_eq!(plan.set_types, vec!["image/png"]);
+        assert!(plan.skipped_types.is_empty());
+        assert!(plan.forced);
+    }
+
+    #[test]
+    fn set_force_still_errors_on_unknown_app() {
+        let e = read_only_engine();
+        assert!(matches!(
+            e.set("image/png", "nope", None, true, false),
+            Err(Error::UnknownApp(_))
+        ));
     }
 }
