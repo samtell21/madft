@@ -1,4 +1,3 @@
 fn main() {
-    eprintln!("madft: CLI not yet implemented (facts layer only)");
-    std::process::exit(2);
+    std::process::exit(madft::cli::run());
 }
