@@ -181,6 +181,17 @@ fn golden_set_root_target_is_system_wide() {
 }
 
 #[test]
+fn golden_set_explicit_dot_target_is_root() {
+    // `.` is the explicit-root alias on `set`, equivalent to omitting the target.
+    let cli = parse(&["madft", "set", "mpv", ".", "--dry-run", "--json"]);
+    let out = execute(&read_engine(), &cli.command, cli.json);
+    assert_eq!(out.code, 0);
+    let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    assert_eq!(v["target"], "(root)");
+    assert_eq!(v["set_types"], serde_json::json!(["audio/mpeg", "video/mp4", "video/x-matroska"]));
+}
+
+#[test]
 fn golden_apps_no_target_is_root() {
     let cli = parse(&["madft", "apps", "--json"]);
     let out = execute(&read_engine(), &cli.command, cli.json);
