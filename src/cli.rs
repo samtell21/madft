@@ -31,20 +31,23 @@ pub enum Command {
     Types { path: String },
     /// Show details for a mimetype.
     Info { mimetype: String },
-    /// List apps that can handle a category path or mimetype.
-    Apps { target: String },
+    /// List apps that can handle a category path or mimetype (root if omitted).
+    Apps { target: Option<String> },
     /// Show one app's declared types, their categories, and what it's default for.
     App { id: String },
-    /// Set an app as the default for a category path or mimetype.
+    /// Set an app as the default for a category path or mimetype (root if omitted).
     Set {
-        target: String,
         app: String,
+        target: Option<String>,
         /// Restrict to a comma-separated subset of the umbrella's types.
         #[arg(long, value_delimiter = ',')]
         types: Vec<String>,
         /// Set even types the app doesn't declare (override the guard).
         #[arg(short = 'f', long)]
         force: bool,
+        /// Only set types that currently have no default (don't overwrite).
+        #[arg(long, visible_alias = "if-unset")]
+        no_clobber: bool,
         /// Print the plan without writing.
         #[arg(long)]
         dry_run: bool,
@@ -119,16 +122,16 @@ fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String,
             if json { to_json(&r) } else { human_info(&r) }
         }
         Command::Apps { target } => {
-            let r = engine.apps(Some(target))?;
+            let r = engine.apps(target.as_deref())?;
             if json { to_json(&r) } else { human_apps(&r) }
         }
         Command::App { id } => {
             let r = engine.app(id)?;
             if json { to_json(&r) } else { human_app(&r) }
         }
-        Command::Set { target, app, types, force, dry_run } => {
+        Command::Set { app, target, types, force, no_clobber, dry_run } => {
             let filter = if types.is_empty() { None } else { Some(types.as_slice()) };
-            let r = engine.set(app, Some(target.as_str()), filter, *force, false, *dry_run)?;
+            let r = engine.set(app, target.as_deref(), filter, *force, *no_clobber, *dry_run)?;
             if json { to_json(&r) } else { human_set(&r) }
         }
         Command::Unset { mimetype } => {
@@ -163,13 +166,21 @@ pub fn execute(engine: &Engine, command: &Command, json: bool) -> Outcome {
 }
 
 fn human_ls(r: &LsResult) -> String {
+    let both = !r.subcategories.is_empty() && !r.types.is_empty();
+    let (cat_prefix, type_prefix) = if both { ("  ", "  ") } else { ("", "") };
     let mut s = String::new();
+    if both {
+        s.push_str("categories:\n");
+    }
     for sub in &r.subcategories {
-        s.push_str(&format!("{sub}/\n"));
+        s.push_str(&format!("{cat_prefix}{sub}\n"));
+    }
+    if both {
+        s.push_str("types:\n");
     }
     for t in &r.types {
         let def = t.current_default.as_deref().unwrap_or("(none)");
-        s.push_str(&format!("{}  [default: {def}, apps: {}]\n", t.mime, t.applicable_count));
+        s.push_str(&format!("{type_prefix}{}  [default: {def}, apps: {}]\n", t.mime, t.applicable_count));
     }
     s.trim_end().to_string()
 }
@@ -249,6 +260,9 @@ fn human_set(p: &SetPlan) -> String {
             p.app,
             p.skipped_types.join(", ")
         ));
+    }
+    if !p.unchanged_types.is_empty() {
+        s.push_str(&format!("kept (already set): {}\n", p.unchanged_types.join(", ")));
     }
     s.trim_end().to_string()
 }
@@ -334,12 +348,16 @@ mod tests {
     }
 
     #[test]
-    fn ls_root_human_lists_categories() {
+    fn ls_root_human_lists_categories_without_slashes() {
         let out = execute(&engine(), &Command::Ls { path: None }, false);
         assert_eq!(out.code, 0);
-        assert!(out.stdout.contains("Media/"));
-        assert!(out.stdout.contains("Web/"));
-        assert!(out.stdout.contains("Other/"));
+        assert!(out.stdout.contains("Media"));
+        assert!(out.stdout.contains("Web"));
+        assert!(out.stdout.contains("Other"));
+        // No trailing slash on categories anymore.
+        assert!(!out.stdout.contains("Media/"));
+        // Root has only categories -> no section headers.
+        assert!(!out.stdout.contains("categories:"));
     }
 
     #[test]
@@ -393,10 +411,11 @@ mod tests {
     #[test]
     fn set_dry_run_json_reports_partition() {
         let cmd = Command::Set {
-            target: "Media".to_string(),
             app: "mpv".to_string(),
+            target: Some("Media".to_string()),
             types: vec![],
             force: false,
+            no_clobber: false,
             dry_run: true,
         };
         let out = execute(&engine(), &cmd, true);
@@ -404,6 +423,8 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
         assert_eq!(v["set_types"], serde_json::json!(["audio/mpeg", "video/mp4", "video/x-matroska"]));
         assert_eq!(v["skipped_types"], serde_json::json!(["application/ogg", "image/png", "image/jpeg"]));
+        assert_eq!(v["unchanged_types"], serde_json::json!([]));
+        assert_eq!(v["no_clobber"], serde_json::json!(false));
         assert_eq!(v["written"], serde_json::json!(false));
     }
 
