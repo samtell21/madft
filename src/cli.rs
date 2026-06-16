@@ -119,7 +119,7 @@ fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String,
             if json { to_json(&r) } else { human_info(&r) }
         }
         Command::Apps { target } => {
-            let r = engine.apps(target)?;
+            let r = engine.apps(Some(target))?;
             if json { to_json(&r) } else { human_apps(&r) }
         }
         Command::App { id } => {

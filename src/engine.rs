@@ -132,20 +132,25 @@ impl Engine {
         }
     }
 
-    /// Resolve a `<PATH|mimetype>` target. A target containing '/' is a mimetype
-    /// (umbrella = just that canonical type); otherwise it is a category path
-    /// (umbrella = its recursive types). `'/'` is the mimetype's own delimiter
-    /// and never appears in a category name (spec §2).
-    fn resolve_umbrella(&self, target: &str) -> Result<(String, Vec<MimeType>)> {
-        if target.contains('/') {
-            let canon = self.mimedb.canonicalize(&MimeType::new(target));
-            Ok((canon.to_string(), vec![canon]))
-        } else {
-            let id = self
-                .tree
-                .node_by_path(target)
-                .ok_or_else(|| Error::UnknownPath(target.to_string()))?;
-            Ok((self.tree.path(id), self.tree.types_under(id)))
+    /// Resolve a `[PATH|mimetype]` target. `None` or `"."` is the root (whole
+    /// tree); a target containing '/' is a mimetype (umbrella = just that
+    /// canonical type); otherwise it is a category path (umbrella = its
+    /// recursive types). `'/'` is the mimetype's own delimiter and never
+    /// appears in a category name (spec §2). Root's display label is `(root)`.
+    fn resolve_umbrella(&self, target: Option<&str>) -> Result<(String, Vec<MimeType>)> {
+        match target {
+            None | Some(".") => Ok(("(root)".to_string(), self.tree.all_types())),
+            Some(t) if t.contains('/') => {
+                let canon = self.mimedb.canonicalize(&MimeType::new(t));
+                Ok((canon.to_string(), vec![canon]))
+            }
+            Some(t) => {
+                let id = self
+                    .tree
+                    .node_by_path(t)
+                    .ok_or_else(|| Error::UnknownPath(t.to_string()))?;
+                Ok((self.tree.path(id), self.tree.types_under(id)))
+            }
         }
     }
 
@@ -215,7 +220,7 @@ impl Engine {
 
     /// `apps <PATH|mimetype>`: apps declaring any of the umbrella's types, with
     /// their coverage, sorted by coverage (desc) then id (asc).
-    pub fn apps(&self, target: &str) -> Result<AppsResult> {
+    pub fn apps(&self, target: Option<&str>) -> Result<AppsResult> {
         let (label, umbrella) = self.resolve_umbrella(target)?;
         // app id -> the umbrella types it declares (in umbrella order).
         let mut by_app: BTreeMap<DesktopId, Vec<MimeType>> = BTreeMap::new();
@@ -335,7 +340,7 @@ mod tests {
     #[test]
     fn apps_sorted_by_coverage() {
         let e = engine();
-        let r = e.apps("Media").unwrap();
+        let r = e.apps(Some("Media")).unwrap();
         let ids: Vec<&str> = r.apps.iter().map(|a| a.id.as_str()).collect();
         assert_eq!(ids, vec!["mpv.desktop", "eog.desktop", "webcam.desktop"]);
         assert_eq!(r.apps[0].coverage, 3);
@@ -346,11 +351,27 @@ mod tests {
     #[test]
     fn apps_for_a_mimetype_target() {
         let e = engine();
-        let r = e.apps("video/mp4").unwrap();
+        let r = e.apps(Some("video/mp4")).unwrap();
         assert_eq!(r.target, "video/mp4");
         assert_eq!(r.types, vec!["video/mp4"]);
         let ids: Vec<&str> = r.apps.iter().map(|a| a.id.as_str()).collect();
         assert_eq!(ids, vec!["mpv.desktop", "webcam.desktop"]);
+    }
+
+    #[test]
+    fn apps_root_target_covers_whole_tree() {
+        let e = engine();
+        let none = e.apps(None).unwrap();
+        assert_eq!(none.target, "(root)");
+        // `.` is an explicit alias for the same root umbrella.
+        let dot = e.apps(Some(".")).unwrap();
+        assert_eq!(dot.target, "(root)");
+        assert_eq!(none.types, dot.types);
+        // Root umbrella is every placed type (Media subtree + Other + Web).
+        assert!(none.types.contains(&"video/mp4".to_string()));
+        assert!(none.types.contains(&"text/html".to_string()));
+        // mpv still leads coverage somewhere in the ranking.
+        assert!(none.apps.iter().any(|a| a.id == "mpv.desktop"));
     }
 
     #[test]
@@ -395,7 +416,7 @@ impl Engine {
         force: bool,
         dry_run: bool,
     ) -> Result<SetPlan> {
-        let (label, umbrella) = self.resolve_umbrella(target)?;
+        let (label, umbrella) = self.resolve_umbrella(Some(target))?;
         let app_id = DesktopId::new(app);
         if self.appindex.app(&app_id).is_none() {
             return Err(Error::UnknownApp(app_id.to_string()));
