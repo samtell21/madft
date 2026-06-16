@@ -99,6 +99,18 @@ impl CategoryTree {
         out
     }
 
+    /// Recursive union of types across ALL roots, in DFS order (each root's
+    /// subtree in `roots()` order). Because every placed type lives under
+    /// exactly one root, this is exactly the set of all placed types with no
+    /// de-duplication needed — the umbrella for a root (whole-tree) target.
+    pub fn all_types(&self) -> Vec<MimeType> {
+        let mut out = Vec::new();
+        for root in self.roots() {
+            self.collect_types_under(root, &mut out);
+        }
+        out
+    }
+
     fn collect_types_under(&self, id: CategoryId, out: &mut Vec<MimeType>) {
         out.extend(self.arena[id.0].types.iter().cloned());
         for child in self.subcategories(id) {
@@ -206,5 +218,19 @@ mod tests {
         assert_eq!(t.types(CategoryId(0)), &[MimeType::new("application/ogg")]);
         assert_eq!(t.len(), 3);
         assert!(!t.is_empty());
+    }
+
+    #[test]
+    fn all_types_unions_every_root_in_dfs_order() {
+        let t = sample();
+        // Media (application/ogg) -> Media.Video (video/mp4), then Other (text/plain).
+        assert_eq!(
+            t.all_types(),
+            vec![
+                MimeType::new("application/ogg"),
+                MimeType::new("video/mp4"),
+                MimeType::new("text/plain"),
+            ]
+        );
     }
 }
