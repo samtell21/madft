@@ -71,16 +71,19 @@ pub struct AppsResult {
     pub apps: Vec<AppCoverage>,
 }
 
-/// Plan produced by `set`: which umbrella types will be / were set, and which
-/// were skipped because the app does not declare them (informational, NOT an
-/// error — partial coverage is success, spec §7).
+/// Plan produced by `set`: which umbrella types will be / were set, which were
+/// skipped because the app does not declare them, and which were kept untouched
+/// by `--no-clobber` (they already had a default). Skips are informational, NOT
+/// an error — partial coverage is success (spec §7).
 #[derive(Serialize, Debug)]
 pub struct SetPlan {
     pub app: String,
     pub target: String,
     pub set_types: Vec<String>,
     pub skipped_types: Vec<String>,
+    pub unchanged_types: Vec<String>,
     pub forced: bool,
+    pub no_clobber: bool,
     pub dry_run: bool,
     pub written: bool,
 }
@@ -401,22 +404,29 @@ mod tests {
 }
 
 impl Engine {
-    /// `set <PATH|mimetype> <app> [--types …] [--force] [--dry-run]`: set `app`
-    /// as the default for the umbrella types it declares. Types the app does NOT
+    /// `set <app> [target] [--types …] [--force] [--no-clobber] [--dry-run]`:
+    /// set `app` as the default for the umbrella types it declares. Target is
+    /// optional (root/whole-tree when omitted or `"."`). Types the app does NOT
     /// declare are reported as `skipped_types` (informational, not an error).
     /// `types_filter`, when given, restricts to that subset (alias-canonicalized).
-    /// `force` overrides the exact-declaration guard — every targeted type is set
-    /// regardless of declaration (so nothing is skipped). Guards with
-    /// `AppHandlesNothingUnderUmbrella` if `set_types` ends up empty.
+    /// `force` overrides the exact-declaration guard. `no_clobber` keeps any
+    /// candidate that already has a current default (reported as
+    /// `unchanged_types`), so only blanks are filled.
+    ///
+    /// The empty-candidate guard runs BEFORE the no-clobber split: an app that
+    /// declares nothing under the umbrella errors `AppHandlesNothingUnderUmbrella`
+    /// whether or not `no_clobber` is set. By contrast, a no-clobber call whose
+    /// candidates are all already set is SUCCESS (writes nothing).
     pub fn set(
         &self,
-        target: &str,
         app: &str,
+        target: Option<&str>,
         types_filter: Option<&[String]>,
         force: bool,
+        no_clobber: bool,
         dry_run: bool,
     ) -> Result<SetPlan> {
-        let (label, umbrella) = self.resolve_umbrella(Some(target))?;
+        let (label, umbrella) = self.resolve_umbrella(target)?;
         let app_id = DesktopId::new(app);
         if self.appindex.app(&app_id).is_none() {
             return Err(Error::UnknownApp(app_id.to_string()));
@@ -427,34 +437,45 @@ impl Engine {
                 .collect()
         });
 
-        let mut set_types: Vec<MimeType> = Vec::new();
+        // Candidates = filtered umbrella types the app declares (or --force'd).
+        // Types outside the --types filter are ignored entirely. Written without
+        // a `let`-chain to keep the MSRV at Rust 1.85; let-chains need 1.88.
+        let mut candidates: Vec<MimeType> = Vec::new();
         let mut skipped: Vec<MimeType> = Vec::new();
         for t in &umbrella {
-            // Outside the --types restriction (filter present and type not in it):
-            // ignore entirely. Written without a `let`-chain to keep the MSRV at
-            // Rust 1.85 (edition 2024's floor); let-chains need 1.88.
             if filter.as_ref().is_some_and(|f| !f.contains(t)) {
                 continue;
             }
             if force || self.appindex.declares(&app_id, t) {
-                set_types.push(t.clone());
+                candidates.push(t.clone());
             } else {
                 skipped.push(t.clone());
             }
         }
 
-        if set_types.is_empty() {
+        // Empty-candidate guard: BEFORE the no-clobber split (see doc comment).
+        if candidates.is_empty() {
             return Err(Error::AppHandlesNothingUnderUmbrella {
                 app: app_id.to_string(),
                 umbrella: label,
             });
         }
 
+        // No-clobber keeps candidates that already have any current default
+        // (partition preserves umbrella order within each group).
+        let (set_types, unchanged): (Vec<MimeType>, Vec<MimeType>) = if no_clobber {
+            candidates
+                .into_iter()
+                .partition(|t| self.defaults.current_default(t).is_none())
+        } else {
+            (candidates, Vec::new())
+        };
+
         let edits: Vec<crate::writer::Edit> = set_types
             .iter()
             .map(|t| crate::writer::Edit::Set(t.clone(), app_id.clone()))
             .collect();
-        let written = if dry_run {
+        let written = if dry_run || edits.is_empty() {
             false
         } else {
             crate::writer::write_user_defaults(&self.roots.user_mimeapps(), &edits)?
@@ -465,7 +486,9 @@ impl Engine {
             target: label,
             set_types: set_types.iter().map(|t| t.to_string()).collect(),
             skipped_types: skipped.iter().map(|t| t.to_string()).collect(),
+            unchanged_types: unchanged.iter().map(|t| t.to_string()).collect(),
             forced: force,
+            no_clobber,
             dry_run,
             written,
         })
@@ -522,31 +545,33 @@ mod write_tests {
     #[test]
     fn set_dry_run_partitions_without_writing() {
         let e = read_only_engine();
-        let plan = e.set("Media", "mpv", None, false, true).unwrap();
+        let plan = e.set("mpv", Some("Media"), None, false, false, true).unwrap();
         assert_eq!(plan.set_types, vec!["audio/mpeg", "video/mp4", "video/x-matroska"]);
         assert_eq!(plan.skipped_types, vec!["application/ogg", "image/png", "image/jpeg"]);
+        assert!(plan.unchanged_types.is_empty());
         assert!(!plan.written);
         assert!(plan.dry_run);
         assert!(!plan.forced);
+        assert!(!plan.no_clobber);
     }
 
     #[test]
     fn set_guards_when_app_handles_nothing() {
         let e = read_only_engine();
-        let err = e.set("Media", "nvim", None, false, false).unwrap_err();
+        let err = e.set("nvim", Some("Media"), None, false, false, false).unwrap_err();
         assert!(matches!(err, Error::AppHandlesNothingUnderUmbrella { .. }));
     }
 
     #[test]
     fn set_unknown_app_errors() {
         let e = read_only_engine();
-        assert!(matches!(e.set("Media", "nope", None, false, false), Err(Error::UnknownApp(_))));
+        assert!(matches!(e.set("nope", Some("Media"), None, false, false, false), Err(Error::UnknownApp(_))));
     }
 
     #[test]
     fn set_writes_backs_up_and_is_idempotent() {
         let (e, path) = engine_with_temp_config("set");
-        let plan = e.set("Media", "mpv", None, false, false).unwrap();
+        let plan = e.set("mpv", Some("Media"), None, false, false, false).unwrap();
         assert!(plan.written);
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -556,7 +581,7 @@ mod write_tests {
         assert!(content.contains("text/html=org.qutebrowser.qutebrowser.desktop"));
         assert!(path.with_file_name("mimeapps.list.bak").exists());
 
-        let again = e.set("Media", "mpv", None, false, false).unwrap();
+        let again = e.set("mpv", Some("Media"), None, false, false, false).unwrap();
         assert!(!again.written);
     }
 
@@ -564,9 +589,68 @@ mod write_tests {
     fn set_with_types_filter_restricts() {
         let (e, _path) = engine_with_temp_config("filter");
         let only = ["video/mp4".to_string()];
-        let plan = e.set("Media", "mpv", Some(&only), false, true).unwrap();
+        let plan = e.set("mpv", Some("Media"), Some(&only), false, false, true).unwrap();
         assert_eq!(plan.set_types, vec!["video/mp4"]);
         assert!(plan.skipped_types.is_empty());
+    }
+
+    #[test]
+    fn set_force_sets_undeclared_type() {
+        let e = read_only_engine();
+        // mpv does NOT declare image/png; --force sets it anyway (dry-run).
+        let plan = e.set("mpv", Some("image/png"), None, true, false, true).unwrap();
+        assert_eq!(plan.set_types, vec!["image/png"]);
+        assert!(plan.skipped_types.is_empty());
+        assert!(plan.forced);
+    }
+
+    #[test]
+    fn set_force_still_errors_on_unknown_app() {
+        let e = read_only_engine();
+        assert!(matches!(
+            e.set("nope", Some("image/png"), None, true, false, false),
+            Err(Error::UnknownApp(_))
+        ));
+    }
+
+    #[test]
+    fn set_no_clobber_only_fills_unset_declared_types() {
+        // mpv declares audio/mpeg, video/mp4, video/x-matroska. In the fixture
+        // video/mp4 is already mpv; the other two are unset.
+        let e = read_only_engine();
+        let plan = e.set("mpv", Some("Media"), None, false, true, true).unwrap();
+        assert_eq!(plan.set_types, vec!["audio/mpeg", "video/x-matroska"]);
+        assert_eq!(plan.unchanged_types, vec!["video/mp4"]);
+        assert!(plan.no_clobber);
+    }
+
+    #[test]
+    fn set_no_clobber_all_already_set_is_success_not_error() {
+        // Restrict to video/mp4 (already mpv) under --no-clobber: nothing to do,
+        // but a declared candidate existed, so this is success, not the guard.
+        let e = read_only_engine();
+        let only = ["video/mp4".to_string()];
+        let plan = e.set("mpv", Some("Media"), Some(&only), false, true, true).unwrap();
+        assert!(plan.set_types.is_empty());
+        assert_eq!(plan.unchanged_types, vec!["video/mp4"]);
+        assert!(!plan.written);
+    }
+
+    #[test]
+    fn set_no_clobber_still_guards_when_app_declares_nothing() {
+        // nvim declares nothing under Media: guard fires regardless of the flag.
+        let e = read_only_engine();
+        let err = e.set("nvim", Some("Media"), None, false, true, false).unwrap_err();
+        assert!(matches!(err, Error::AppHandlesNothingUnderUmbrella { .. }));
+    }
+
+    #[test]
+    fn set_root_target_labels_root() {
+        let e = read_only_engine();
+        let plan = e.set("mpv", None, None, false, false, true).unwrap();
+        assert_eq!(plan.target, "(root)");
+        // Over the whole tree, mpv still only sets the 3 types it declares.
+        assert_eq!(plan.set_types, vec!["audio/mpeg", "video/mp4", "video/x-matroska"]);
     }
 
     #[test]
@@ -577,25 +661,6 @@ mod write_tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(!content.contains("video/mp4="));
         assert!(!e.unset("video/mp4").unwrap());
-    }
-
-    #[test]
-    fn set_force_sets_undeclared_type() {
-        let e = read_only_engine();
-        // mpv does NOT declare image/png; --force sets it anyway (dry-run).
-        let plan = e.set("image/png", "mpv", None, true, true).unwrap();
-        assert_eq!(plan.set_types, vec!["image/png"]);
-        assert!(plan.skipped_types.is_empty());
-        assert!(plan.forced);
-    }
-
-    #[test]
-    fn set_force_still_errors_on_unknown_app() {
-        let e = read_only_engine();
-        assert!(matches!(
-            e.set("image/png", "nope", None, true, false),
-            Err(Error::UnknownApp(_))
-        ));
     }
 }
 

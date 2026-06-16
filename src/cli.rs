@@ -128,7 +128,7 @@ fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String,
         }
         Command::Set { target, app, types, force, dry_run } => {
             let filter = if types.is_empty() { None } else { Some(types.as_slice()) };
-            let r = engine.set(target, app, filter, *force, *dry_run)?;
+            let r = engine.set(app, Some(target.as_str()), filter, *force, false, *dry_run)?;
             if json { to_json(&r) } else { human_set(&r) }
         }
         Command::Unset { mimetype } => {
