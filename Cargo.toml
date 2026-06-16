@@ -6,3 +6,4 @@ description = "Inspect and set XDG default applications via a curated category t
 
 [dependencies]
 thiserror = "2"
+toml = "0.8"

@@ -7,3 +7,4 @@ pub mod paths;
 pub mod mimedb;
 pub mod appindex;
 pub mod defaults;
+pub mod categories;
