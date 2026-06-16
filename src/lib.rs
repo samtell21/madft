@@ -13,3 +13,4 @@ pub mod defaults;
 pub mod categories;
 pub mod writer;
 pub mod engine;
+pub mod cli;
