@@ -102,9 +102,19 @@ impl Engine {
         let mimedb = MimeDb::load(&roots.mime_dirs())?;
         let appindex = AppIndex::load(roots)?;
         let defaults = Defaults::load(&roots.mimeapps_files(desktops))?;
-        let cat_defaults = FileSource::new(roots.data_home.join("madft/categories.toml"));
+        let cat_path = roots.data_home.join("madft/categories.toml");
         let cat_overrides = FileSource::new(roots.config_home.join("madft/overrides.toml"));
-        let tree = categories::build(&cat_defaults, &cat_overrides, &mimedb)?;
+        // Fall back to the built-in default tree if the user has no categories.toml,
+        // so `ls` is never empty out of the box (no file is written).
+        let tree = if cat_path.exists() {
+            categories::build(&FileSource::new(cat_path), &cat_overrides, &mimedb)?
+        } else {
+            categories::build(
+                &categories::StaticSource::new(categories::DEFAULT_CATEGORIES),
+                &cat_overrides,
+                &mimedb,
+            )?
+        };
         Ok(Engine {
             roots: roots.clone(),
             mimedb,
@@ -348,6 +358,24 @@ mod tests {
         let e = engine();
         assert_eq!(e.get("video/mp4"), Some("mpv.desktop".to_string()));
         assert_eq!(e.get("image/png"), None);
+    }
+
+    #[test]
+    fn builtin_default_tree_used_when_no_config() {
+        let f = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let empty = std::env::temp_dir().join("madft-no-config-test");
+        let _ = std::fs::remove_dir_all(&empty);
+        std::fs::create_dir_all(&empty).unwrap();
+        let roots = Roots {
+            data_home: empty.clone(), // no madft/categories.toml here
+            data_dirs: vec![f.clone()], // mime + applications come from fixtures
+            config_home: empty,
+            config_dirs: vec![],
+        };
+        let e = Engine::load(&roots, &[]).unwrap();
+        // The built-in default tree provides these categories.
+        assert!(e.ls(Some("Media.Video")).is_ok());
+        assert!(e.ls(Some("Images")).is_ok());
     }
 }
 

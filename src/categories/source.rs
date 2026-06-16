@@ -10,7 +10,7 @@
 //! rejected with a guiding Parse error.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 use crate::types::MimeType;
@@ -53,6 +53,42 @@ impl Source for FileSource {
         };
         parse_categories(&content, &self.path.display().to_string())
     }
+}
+
+/// The built-in default category tree, compiled into the binary.
+pub const DEFAULT_CATEGORIES: &str = include_str!("../../data/categories.toml");
+
+/// A `Source` backed by an in-memory string — used for the built-in default
+/// tree when no on-disk `categories.toml` exists, so the tree is never empty.
+#[derive(Clone, Debug)]
+pub struct StaticSource {
+    content: &'static str,
+}
+
+impl StaticSource {
+    pub fn new(content: &'static str) -> Self {
+        StaticSource { content }
+    }
+}
+
+impl Source for StaticSource {
+    fn load(&self) -> Result<Vec<CategorySpec>> {
+        parse_categories(self.content, "<built-in default>")
+    }
+}
+
+/// Write the built-in default category tree to `path` (creating parent dirs).
+/// Returns `Ok(true)` if written, `Ok(false)` if the file already exists and
+/// `force` is false (left untouched).
+pub fn write_default_categories(path: &Path, force: bool) -> Result<bool> {
+    if path.exists() && !force {
+        return Ok(false);
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, DEFAULT_CATEGORIES)?;
+    Ok(true)
 }
 
 /// A category-name segment may contain only `[A-Za-z0-9 _-]` (no '.', ':', '/')
@@ -219,5 +255,13 @@ types = ["video/mp4", "video/mp4"]
         let toml = "[Media.Video]\ntypes = [\"video/mp4\"]\n";
         let err = parse_categories(toml, "test").unwrap_err();
         assert!(matches!(err, Error::Parse { .. }));
+    }
+
+    #[test]
+    fn default_categories_is_valid() {
+        let specs = parse_categories(DEFAULT_CATEGORIES, "<built-in>").unwrap();
+        assert!(!specs.is_empty());
+        assert!(specs.iter().any(|s| s.path == "Media.Video"));
+        assert!(specs.iter().any(|s| s.path == "Images"));
     }
 }

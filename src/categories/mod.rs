@@ -10,5 +10,8 @@ mod source;
 mod tree;
 
 pub use tree::{CategoryId, CategoryNode, CategoryTree};
-pub use source::{parse_categories, CategorySpec, FileSource, Source};
+pub use source::{
+    parse_categories, write_default_categories, CategorySpec, FileSource, Source, StaticSource,
+    DEFAULT_CATEGORIES,
+};
 pub use merge::{build, OTHER};

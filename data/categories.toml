@@ -1,0 +1,21 @@
+# madft's built-in default category tree. `madft init` copies this to
+# ~/.local/share/madft/categories.toml so you can edit it. Any mimetype not
+# placed here falls into a flat "Other" node automatically.
+
+["Media.Video"]
+types = ["video/mp4", "video/x-matroska", "video/webm", "video/quicktime", "video/mpeg", "video/x-msvideo"]
+
+["Media.Audio"]
+types = ["audio/mpeg", "audio/flac", "audio/ogg", "audio/x-vorbis+ogg", "audio/x-wav", "audio/aac", "audio/opus"]
+
+["Images"]
+types = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", "image/tiff", "image/bmp"]
+
+["Documents"]
+types = ["application/pdf", "application/epub+zip", "text/plain", "text/markdown", "application/vnd.oasis.opendocument.text", "application/msword", "application/rtf"]
+
+["Web"]
+types = ["text/html", "application/xhtml+xml"]
+
+["Archives"]
+types = ["application/zip", "application/x-tar", "application/gzip", "application/x-7z-compressed", "application/x-xz", "application/x-bzip2", "application/vnd.rar"]

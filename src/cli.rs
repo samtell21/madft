@@ -53,6 +53,12 @@ pub enum Command {
     Unset { mimetype: String },
     /// Print the bare current default for a mimetype (scriptable).
     Get { mimetype: String },
+    /// Write the built-in default category tree to ~/.local/share/madft/categories.toml.
+    Init {
+        /// Overwrite an existing categories.toml.
+        #[arg(short = 'f', long)]
+        force: bool,
+    },
 }
 
 /// Captured result of a command: output streams + the process exit code.
@@ -143,6 +149,7 @@ fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String,
                 d.unwrap_or_default()
             }
         }
+        Command::Init { .. } => unreachable!("`init` is handled in run() before the engine is built"),
     };
     Ok(out)
 }
@@ -256,14 +263,50 @@ fn current_desktops() -> Vec<String> {
         .collect()
 }
 
+/// Write the built-in default category tree to `path` and render the result.
+fn init_outcome(path: &std::path::Path, force: bool, json: bool) -> Outcome {
+    match crate::categories::write_default_categories(path, force) {
+        Ok(written) => {
+            if json {
+                let body = serde_json::json!({
+                    "written": written,
+                    "path": path.display().to_string(),
+                });
+                Outcome { code: 0, stdout: to_json(&body), stderr: String::new() }
+            } else if written {
+                Outcome {
+                    code: 0,
+                    stdout: format!("wrote default category tree to {}", path.display()),
+                    stderr: String::new(),
+                }
+            } else {
+                Outcome {
+                    code: 0,
+                    stdout: format!(
+                        "{} already exists (use --force to overwrite)",
+                        path.display()
+                    ),
+                    stderr: String::new(),
+                }
+            }
+        }
+        Err(e) => render_error(&e, json),
+    }
+}
+
 /// Binary entry point: parse argv, build the engine from the live environment,
 /// print the rendered output, and return the process exit code.
 pub fn run() -> i32 {
     let cli = Cli::parse();
     let roots = Roots::from_env();
-    let outcome = match Engine::load(&roots, &current_desktops()) {
-        Ok(engine) => execute(&engine, &cli.command, cli.json),
-        Err(e) => render_error(&e, cli.json),
+    let outcome = match &cli.command {
+        Command::Init { force } => {
+            init_outcome(&roots.data_home.join("madft/categories.toml"), *force, cli.json)
+        }
+        cmd => match Engine::load(&roots, &current_desktops()) {
+            Ok(engine) => execute(&engine, cmd, cli.json),
+            Err(e) => render_error(&e, cli.json),
+        },
     };
     if !outcome.stdout.is_empty() {
         println!("{}", outcome.stdout);
@@ -375,5 +418,28 @@ mod tests {
         assert_eq!(v["types"][0]["mime"], "video/mp4");
         assert_eq!(v["types"][0]["is_default"], true);
         assert_eq!(v["types"][0]["category"], "Media.Video");
+    }
+
+    #[test]
+    fn init_writes_default_then_reports_existing() {
+        let dir = std::env::temp_dir().join("madft-cli-init-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("madft/categories.toml");
+
+        let out = init_outcome(&path, false, true);
+        assert_eq!(out.code, 0);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(v["written"], serde_json::json!(true));
+        assert!(path.exists());
+
+        // Second call without --force: not overwritten.
+        let out2 = init_outcome(&path, false, true);
+        let v2: serde_json::Value = serde_json::from_str(&out2.stdout).unwrap();
+        assert_eq!(v2["written"], serde_json::json!(false));
+
+        // With --force: overwritten.
+        let out3 = init_outcome(&path, true, true);
+        let v3: serde_json::Value = serde_json::from_str(&out3.stdout).unwrap();
+        assert_eq!(v3["written"], serde_json::json!(true));
     }
 }
