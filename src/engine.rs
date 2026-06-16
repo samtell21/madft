@@ -178,12 +178,13 @@ impl Engine {
     /// the inherit-if-unset `ancestor_types` chain. `comment` is deferred.
     pub fn info(&self, mime: &str) -> Result<TypeInfo> {
         let canon = self.mimedb.canonicalize(&MimeType::new(mime));
-        let applicable_apps: Vec<AppRef> = self
+        let mut applicable_apps: Vec<AppRef> = self
             .appindex
             .apps_for_type(&canon)
             .iter()
             .map(|a| AppRef { id: a.id.to_string(), name: a.name.clone() })
             .collect();
+        applicable_apps.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(TypeInfo {
             mime: canon.to_string(),
             comment: None,
