@@ -31,16 +31,18 @@ Everyday use:
 
 ```bash
 madft ls                       # top-level categories
-madft ls Media                 # Media.Audio/  Media.Video/
+madft ls Media                 # Media.Audio  Media.Video
 madft ls Media.Video           # video/mp4  [default: mpv.desktop, apps: 3]  ...
 madft info video/mp4           # category, default, applicable apps, inherit-if-unset chain
+madft apps                     # all apps, ranked by coverage (whole tree)
 madft apps Images              # apps that handle the umbrella, ranked by coverage
 madft app mpv                  # the inverse: what mpv declares + what it's default for
 madft get video/mp4            # bare default (scriptable)
 
-madft set video/mp4 mpv        # set one type
-madft set Media mpv            # set the whole umbrella (only types mpv declares)
-madft set image/png swayimg    # writes ~/.config/mimeapps.list atomically, keeps a .bak
+madft set mpv                  # make mpv default for everything it declares (system-wide)
+madft set mpv Media            # scope to a category (only types mpv declares)
+madft set mpv video/mp4        # set one type
+madft set swayimg --no-clobber # fill only image types that have no default yet
 madft unset video/mp4          # remove a user default
 ```
 
@@ -53,10 +55,10 @@ Add `--json` to any command for machine-readable output.
 | `ls [PATH]` | Child categories + leaf types at a node (roots if no PATH); each leaf shows its current default + applicable-app count. |
 | `types <PATH>` | All mimetypes under the umbrella (recursive, alias-canonicalized). |
 | `info <mimetype>` | Canonical name, **category**, current default, applicable apps, and the `ancestor_types` (inherit-if-unset) chain. |
-| `apps <PATH\|mimetype>` | Apps that declare any of the umbrella's types, ranked by coverage. |
+| `apps [PATH\|mimetype]` | Apps that declare any of the umbrella's types, ranked by coverage. With no target, the whole tree (`.` is an explicit root alias). |
 | `app <id>` | One app's declared types, the category each falls in, and which it's currently the default for. |
 | `get <mimetype>` | The bare current default id (empty if unset). Scriptable. |
-| `set <PATH\|mimetype> <app> [--types a,b] [-f/--force] [--dry-run]` | Set `app` as default for the umbrella's declared types. Reports skipped (undeclared) types — not an error. `--force` overrides the declaration guard; `--dry-run` previews. |
+| `set <app> [PATH\|mimetype] [--types a,b] [-f/--force] [--no-clobber] [--dry-run]` | Set `app` as default for the umbrella's declared types (whole tree if no target). Reports skipped (undeclared) types — not an error. `--force` overrides the declaration guard; `--no-clobber` (alias `--if-unset`) fills only types with no current default; `--dry-run` previews. |
 | `unset <mimetype>` | Remove the user default for a type. |
 | `init [-f/--force]` | Write the built-in default category tree to `~/.local/share/madft/categories.toml` for editing (no-op if it exists, unless `--force`). |
 
@@ -88,17 +90,17 @@ A type listed under two paths in one file is a load error; an override file simp
 Every command emits a stable, additive JSON schema for scripting and front-ends:
 
 ```jsonc
-// madft app swayimg --json
+// madft set mpv Media --no-clobber --dry-run --json
 {
-  "id": "swayimg.desktop",
-  "name": "swayimg",
-  "declares": 5,
-  "default_for": 2,
-  "types": [
-    {"mime": "image/png",  "category": "Images", "is_default": true,  "current_default": "swayimg.desktop"},
-    {"mime": "image/gif",  "category": "Images", "is_default": false, "current_default": "eog.desktop"},
-    {"mime": "image/webp", "category": "Images", "is_default": false, "current_default": null}
-  ]
+  "app": "mpv.desktop",
+  "target": "Media",
+  "set_types": ["audio/mpeg", "video/x-matroska"],
+  "skipped_types": ["application/ogg", "image/png", "image/jpeg"],
+  "unchanged_types": ["video/mp4"],
+  "forced": false,
+  "no_clobber": true,
+  "dry_run": true,
+  "written": false
 }
 ```
 
@@ -127,7 +129,7 @@ cargo clippy --all-targets -- -D warnings   # lints clean
 
 ## Not (yet) included
 
-Deferred by design: a remote/community category database (the `Source` trait seam exists), a TUI front-end, fuzzy app-name matching, `[Added]`/`[Removed]` management, multi-app fallback lists, file locking, and bulk "set/unset everything unset" operations (composable today from the `--json` reads).
+Deferred by design: a remote/community category database (the `Source` trait seam exists), a TUI front-end, fuzzy app-name matching, `[Added]`/`[Removed]` management, multi-app fallback lists, file locking, and bulk "set everything unset" operations are now covered by `set --no-clobber`; a dedicated "list unset" query stays composable from the `--json`/`ls` reads.
 
 ## License
 
