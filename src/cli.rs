@@ -156,6 +156,9 @@ fn human_ls(r: &LsResult) -> String {
 fn human_info(i: &TypeInfo) -> String {
     let mut s = String::new();
     s.push_str(&format!("{}\n", i.mime));
+    if let Some(cat) = &i.category {
+        s.push_str(&format!("  category: {cat}\n"));
+    }
     if let Some(c) = &i.comment {
         s.push_str(&format!("  comment: {c}\n"));
     }

@@ -106,6 +106,16 @@ impl CategoryTree {
         }
     }
 
+    /// The id of the node that DIRECTLY places `t` (its single home), if any.
+    /// Single-placement (spec §4) guarantees at most one match. `t` should be
+    /// alias-canonicalized by the caller.
+    pub fn category_of(&self, t: &MimeType) -> Option<CategoryId> {
+        self.arena
+            .iter()
+            .position(|n| n.types.contains(t))
+            .map(CategoryId)
+    }
+
     pub fn len(&self) -> usize {
         self.arena.len()
     }
@@ -179,6 +189,15 @@ mod tests {
         );
         // a leaf returns only its own types
         assert_eq!(t.types_under(CategoryId(1)), vec![MimeType::new("video/mp4")]);
+    }
+
+    #[test]
+    fn category_of_finds_the_placing_node() {
+        let t = sample();
+        assert_eq!(t.category_of(&MimeType::new("video/mp4")), Some(CategoryId(1)));
+        assert_eq!(t.category_of(&MimeType::new("application/ogg")), Some(CategoryId(0)));
+        assert_eq!(t.category_of(&MimeType::new("text/plain")), Some(CategoryId(2)));
+        assert_eq!(t.category_of(&MimeType::new("nope/none")), None);
     }
 
     #[test]

@@ -45,6 +45,7 @@ pub struct AppRef {
 #[derive(Serialize, Debug)]
 pub struct TypeInfo {
     pub mime: String,
+    pub category: Option<String>,
     pub comment: Option<String>,
     pub current_default: Option<String>,
     pub applicable_count: usize,
@@ -187,6 +188,7 @@ impl Engine {
         applicable_apps.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(TypeInfo {
             mime: canon.to_string(),
+            category: self.tree.category_of(&canon).map(|id| self.tree.path(id)),
             comment: None,
             current_default: self.defaults.current_default(&canon).map(|d| d.to_string()),
             applicable_count: applicable_apps.len(),
@@ -305,6 +307,7 @@ mod tests {
         let e = engine();
         let info = e.info("image/jpg").unwrap();
         assert_eq!(info.mime, "image/jpeg");
+        assert_eq!(info.category.as_deref(), Some("Media.Images"));
         assert_eq!(info.comment, None);
         assert_eq!(info.applicable_count, 1);
         assert_eq!(info.applicable_apps[0].id, "eog.desktop");
@@ -315,6 +318,7 @@ mod tests {
         let e = engine();
         let info = e.info("image/svg+xml").unwrap();
         assert_eq!(info.ancestor_types, vec!["application/xml", "text/plain"]);
+        assert_eq!(info.category.as_deref(), Some("Other"));
     }
 
     #[test]
