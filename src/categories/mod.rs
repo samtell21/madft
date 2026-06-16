@@ -11,3 +11,4 @@ mod tree;
 
 pub use tree::{CategoryId, CategoryNode, CategoryTree};
 pub use source::{parse_categories, CategorySpec, FileSource, Source};
+pub use merge::{build, OTHER};
