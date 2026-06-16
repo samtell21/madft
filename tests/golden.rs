@@ -127,3 +127,44 @@ fn golden_get_is_scriptable() {
     assert_eq!(out.stdout, "mpv.desktop");
     assert_eq!(out.code, 0);
 }
+
+#[test]
+fn golden_info_includes_category_json() {
+    let cli = parse(&["madft", "info", "video/mp4", "--json"]);
+    let out = execute(&read_engine(), &cli.command, cli.json);
+    let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    assert_eq!(v["mime"], "video/mp4");
+    assert_eq!(v["category"], "Media.Video");
+}
+
+#[test]
+fn golden_app_json() {
+    let cli = parse(&["madft", "app", "mpv", "--json"]);
+    let out = execute(&read_engine(), &cli.command, cli.json);
+    assert_eq!(out.code, 0);
+    let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    assert_eq!(v["id"], "mpv.desktop");
+    assert_eq!(v["declares"], 3);
+    assert_eq!(v["default_for"], 1);
+    assert_eq!(v["types"][0]["mime"], "video/mp4");
+    assert_eq!(v["types"][0]["is_default"], true);
+    assert_eq!(v["types"][0]["category"], "Media.Video");
+}
+
+#[test]
+fn golden_set_force_overrides_guard() {
+    // mpv does not declare image/png: rejected without --force, set with it.
+    let reject = parse(&["madft", "set", "image/png", "mpv", "--json"]);
+    let out = execute(&read_engine(), &reject.command, reject.json);
+    assert_eq!(out.code, 1);
+    let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    assert_eq!(v["error"]["kind"], "app-handles-nothing-under-umbrella");
+
+    let forced = parse(&["madft", "set", "image/png", "mpv", "--force", "--dry-run", "--json"]);
+    let out2 = execute(&read_engine(), &forced.command, forced.json);
+    assert_eq!(out2.code, 0);
+    let v2: serde_json::Value = serde_json::from_str(&out2.stdout).unwrap();
+    assert_eq!(v2["forced"], serde_json::json!(true));
+    assert_eq!(v2["set_types"], serde_json::json!(["image/png"]));
+    assert_eq!(v2["skipped_types"], serde_json::json!([]));
+}
