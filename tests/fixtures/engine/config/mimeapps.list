@@ -1,0 +1,3 @@
+[Default Applications]
+video/mp4=mpv.desktop
+text/html=org.qutebrowser.qutebrowser.desktop

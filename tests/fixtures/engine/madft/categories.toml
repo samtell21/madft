@@ -1,0 +1,11 @@
+["Media"]
+types = ["application/ogg"]
+
+["Media.Video"]
+types = ["video/mp4", "video/x-matroska"]
+
+["Media.Audio"]
+types = ["audio/mpeg"]
+
+["Media.Images"]
+types = ["image/png", "image/jpeg"]
