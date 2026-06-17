@@ -55,7 +55,7 @@ fn parse(args: &[&str]) -> Cli {
 fn golden_mpv_in_media_dry_run_json() {
     // The named scenario: `madft set mpv Media --dry-run --json`.
     let cli = parse(&["madft", "set", "mpv", "Media", "--dry-run", "--json"]);
-    let out = execute(&read_engine(), &cli.command, cli.json);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
     assert_eq!(out.code, 0);
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(v["app"], "mpv.desktop");
@@ -70,7 +70,7 @@ fn golden_mpv_in_media_dry_run_json() {
 fn golden_set_writes_file_and_preserves_unrelated() {
     let (engine, path) = writable_engine("set");
     let cli = parse(&["madft", "--json", "set", "mpv", "Media"]);
-    let out = execute(&engine, &cli.command, cli.json);
+    let out = execute(&engine, &cli.command, cli.json, cli.all);
     assert_eq!(out.code, 0);
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(v["written"], serde_json::json!(true));
@@ -90,7 +90,7 @@ fn golden_set_writes_file_and_preserves_unrelated() {
 #[test]
 fn golden_ls_root_json() {
     let cli = parse(&["madft", "ls", "--json"]);
-    let out = execute(&read_engine(), &cli.command, cli.json);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(v["subcategories"], serde_json::json!(["Media", "Other", "Web"]));
     assert_eq!(v["types"], serde_json::json!([]));
@@ -99,7 +99,7 @@ fn golden_ls_root_json() {
 #[test]
 fn golden_apps_coverage_sorted_json() {
     let cli = parse(&["madft", "apps", "Media", "--json"]);
-    let out = execute(&read_engine(), &cli.command, cli.json);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     let ids: Vec<&str> = v["apps"]
         .as_array()
@@ -114,7 +114,7 @@ fn golden_apps_coverage_sorted_json() {
 fn golden_guard_error_envelope_json() {
     // nvim declares nothing under Media -> guard error.
     let cli = parse(&["madft", "set", "nvim", "Media", "--json"]);
-    let out = execute(&read_engine(), &cli.command, cli.json);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
     assert_eq!(out.code, 1);
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(v["error"]["kind"], "app-handles-nothing-under-umbrella");
@@ -123,7 +123,7 @@ fn golden_guard_error_envelope_json() {
 #[test]
 fn golden_get_is_scriptable() {
     let cli = parse(&["madft", "get", "video/mp4"]);
-    let out = execute(&read_engine(), &cli.command, cli.json);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
     assert_eq!(out.stdout, "mpv.desktop");
     assert_eq!(out.code, 0);
 }
@@ -131,7 +131,7 @@ fn golden_get_is_scriptable() {
 #[test]
 fn golden_info_includes_category_json() {
     let cli = parse(&["madft", "info", "video/mp4", "--json"]);
-    let out = execute(&read_engine(), &cli.command, cli.json);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(v["mime"], "video/mp4");
     assert_eq!(v["category"], "Media.Video");
@@ -140,7 +140,7 @@ fn golden_info_includes_category_json() {
 #[test]
 fn golden_app_json() {
     let cli = parse(&["madft", "app", "mpv", "--json"]);
-    let out = execute(&read_engine(), &cli.command, cli.json);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
     assert_eq!(out.code, 0);
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(v["id"], "mpv.desktop");
@@ -155,13 +155,13 @@ fn golden_app_json() {
 fn golden_set_force_overrides_guard() {
     // mpv does not declare image/png: rejected without --force, set with it.
     let reject = parse(&["madft", "set", "mpv", "image/png", "--json"]);
-    let out = execute(&read_engine(), &reject.command, reject.json);
+    let out = execute(&read_engine(), &reject.command, reject.json, reject.all);
     assert_eq!(out.code, 1);
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(v["error"]["kind"], "app-handles-nothing-under-umbrella");
 
     let forced = parse(&["madft", "set", "mpv", "image/png", "--force", "--dry-run", "--json"]);
-    let out2 = execute(&read_engine(), &forced.command, forced.json);
+    let out2 = execute(&read_engine(), &forced.command, forced.json, forced.all);
     assert_eq!(out2.code, 0);
     let v2: serde_json::Value = serde_json::from_str(&out2.stdout).unwrap();
     assert_eq!(v2["forced"], serde_json::json!(true));
@@ -173,7 +173,7 @@ fn golden_set_force_overrides_guard() {
 fn golden_set_root_target_is_system_wide() {
     // `madft set mpv` with no target = root; mpv sets only what it declares.
     let cli = parse(&["madft", "set", "mpv", "--dry-run", "--json"]);
-    let out = execute(&read_engine(), &cli.command, cli.json);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
     assert_eq!(out.code, 0);
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(v["target"], "(root)");
@@ -184,7 +184,7 @@ fn golden_set_root_target_is_system_wide() {
 fn golden_set_explicit_dot_target_is_root() {
     // `.` is the explicit-root alias on `set`, equivalent to omitting the target.
     let cli = parse(&["madft", "set", "mpv", ".", "--dry-run", "--json"]);
-    let out = execute(&read_engine(), &cli.command, cli.json);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
     assert_eq!(out.code, 0);
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(v["target"], "(root)");
@@ -194,13 +194,13 @@ fn golden_set_explicit_dot_target_is_root() {
 #[test]
 fn golden_apps_no_target_is_root() {
     let cli = parse(&["madft", "apps", "--json"]);
-    let out = execute(&read_engine(), &cli.command, cli.json);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
     assert_eq!(out.code, 0);
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(v["target"], "(root)");
     // `.` is the explicit-root alias and must match.
     let dot = parse(&["madft", "apps", ".", "--json"]);
-    let out2 = execute(&read_engine(), &dot.command, dot.json);
+    let out2 = execute(&read_engine(), &dot.command, dot.json, dot.all);
     let v2: serde_json::Value = serde_json::from_str(&out2.stdout).unwrap();
     assert_eq!(v2["target"], "(root)");
     assert_eq!(v["types"], v2["types"]);
@@ -210,7 +210,7 @@ fn golden_apps_no_target_is_root() {
 fn golden_set_no_clobber_fills_only_blanks() {
     // video/mp4 is already mpv; --no-clobber leaves it, fills the rest.
     let cli = parse(&["madft", "set", "mpv", "Media", "--no-clobber", "--dry-run", "--json"]);
-    let out = execute(&read_engine(), &cli.command, cli.json);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
     assert_eq!(out.code, 0);
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(v["set_types"], serde_json::json!(["audio/mpeg", "video/x-matroska"]));
@@ -219,7 +219,7 @@ fn golden_set_no_clobber_fills_only_blanks() {
 
     // The --if-unset alias parses to the same behavior.
     let aliased = parse(&["madft", "set", "mpv", "Media", "--if-unset", "--dry-run", "--json"]);
-    let out2 = execute(&read_engine(), &aliased.command, aliased.json);
+    let out2 = execute(&read_engine(), &aliased.command, aliased.json, aliased.all);
     let v2: serde_json::Value = serde_json::from_str(&out2.stdout).unwrap();
     assert_eq!(v2["set_types"], v["set_types"]);
     assert_eq!(v2["no_clobber"], serde_json::json!(true));

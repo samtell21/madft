@@ -19,6 +19,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
+    /// Show the full taxonomy, including types/categories with no installed app.
+    #[arg(short = 'a', long, global = true)]
+    pub all: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -107,14 +111,14 @@ fn render_error(e: &Error, json: bool) -> Outcome {
 }
 
 /// Dispatch one command and render its stdout (or propagate an engine error).
-fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String, Error> {
+fn run_command(engine: &Engine, command: &Command, json: bool, show_all: bool) -> Result<String, Error> {
     let out = match command {
         Command::Ls { path } => {
-            let r = engine.ls(path.as_deref(), false)?;
-            if json { to_json(&r) } else { human_ls(&r) }
+            let r = engine.ls(path.as_deref(), show_all)?;
+            if json { to_json(&r) } else { human_ls(&r, show_all) }
         }
         Command::Types { path } => {
-            let r = engine.types(path, false)?;
+            let r = engine.types(path, show_all)?;
             if json { to_json(&r) } else { r.join("\n") }
         }
         Command::Info { mimetype } => {
@@ -122,7 +126,7 @@ fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String,
             if json { to_json(&r) } else { human_info(&r) }
         }
         Command::Apps { target } => {
-            let r = engine.apps(target.as_deref(), false)?;
+            let r = engine.apps(target.as_deref(), show_all)?;
             if json { to_json(&r) } else { human_apps(&r) }
         }
         Command::App { id } => {
@@ -131,7 +135,7 @@ fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String,
         }
         Command::Set { app, target, types, force, no_clobber, dry_run } => {
             let filter = if types.is_empty() { None } else { Some(types.as_slice()) };
-            let opts = SetOptions { force: *force, no_clobber: *no_clobber, show_all: false, dry_run: *dry_run };
+            let opts = SetOptions { force: *force, no_clobber: *no_clobber, show_all, dry_run: *dry_run };
             let r = engine.set(app, target.as_deref(), filter, opts)?;
             if json { to_json(&r) } else { human_set(&r) }
         }
@@ -159,14 +163,21 @@ fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String,
 }
 
 /// Run a command against the engine and capture the rendered output + exit code.
-pub fn execute(engine: &Engine, command: &Command, json: bool) -> Outcome {
-    match run_command(engine, command, json) {
+pub fn execute(engine: &Engine, command: &Command, json: bool, show_all: bool) -> Outcome {
+    match run_command(engine, command, json, show_all) {
         Ok(stdout) => Outcome { code: 0, stdout, stderr: String::new() },
         Err(e) => render_error(&e, json),
     }
 }
 
-fn human_ls(r: &LsResult) -> String {
+fn human_ls(r: &LsResult, show_all: bool) -> String {
+    if r.subcategories.is_empty() && r.types.is_empty() {
+        if show_all {
+            return "(empty)".to_string();
+        }
+        let where_ = if r.path.is_empty() { String::new() } else { format!(" under {}", r.path) };
+        return format!("(nothing installed{where_} — use --all to see the full taxonomy)");
+    }
     let both = !r.subcategories.is_empty() && !r.types.is_empty();
     let indent = if both { "  " } else { "" };
     let mut s = String::new();
@@ -319,7 +330,7 @@ pub fn run() -> i32 {
             init_outcome(&roots.data_home.join("madft/categories.toml"), *force, cli.json)
         }
         cmd => match Engine::load(&roots, &current_desktops()) {
-            Ok(engine) => execute(&engine, cmd, cli.json),
+            Ok(engine) => execute(&engine, cmd, cli.json, cli.all),
             Err(e) => render_error(&e, cli.json),
         },
     };
@@ -350,7 +361,7 @@ mod tests {
 
     #[test]
     fn ls_root_human_lists_categories_without_slashes() {
-        let out = execute(&engine(), &Command::Ls { path: None }, false);
+        let out = execute(&engine(), &Command::Ls { path: None }, false, false);
         assert_eq!(out.code, 0);
         assert!(out.stdout.contains("Media"));
         assert!(out.stdout.contains("Web"));
@@ -361,7 +372,7 @@ mod tests {
 
     #[test]
     fn ls_root_json_has_sorted_subcategories() {
-        let out = execute(&engine(), &Command::Ls { path: None }, true);
+        let out = execute(&engine(), &Command::Ls { path: None }, true, true);
         let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
         assert_eq!(v["subcategories"], serde_json::json!(["Media", "Other", "Web"]));
     }
@@ -369,7 +380,7 @@ mod tests {
     #[test]
     fn types_human_is_one_per_line() {
         // Filtered view (cli passes show_all=false): application/ogg (inert) is dropped.
-        let out = execute(&engine(), &Command::Types { path: "Media".to_string() }, false);
+        let out = execute(&engine(), &Command::Types { path: "Media".to_string() }, false, false);
         assert_eq!(
             out.stdout,
             "audio/mpeg\nimage/png\nimage/jpeg\nvideo/mp4\nvideo/x-matroska"
@@ -378,7 +389,7 @@ mod tests {
 
     #[test]
     fn info_json_canonicalizes_alias() {
-        let out = execute(&engine(), &Command::Info { mimetype: "image/jpg".to_string() }, true);
+        let out = execute(&engine(), &Command::Info { mimetype: "image/jpg".to_string() }, true, false);
         let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
         assert_eq!(v["mime"], "image/jpeg");
         assert_eq!(v["comment"], serde_json::Value::Null);
@@ -386,14 +397,14 @@ mod tests {
 
     #[test]
     fn get_human_prints_bare_default() {
-        let out = execute(&engine(), &Command::Get { mimetype: "video/mp4".to_string() }, false);
+        let out = execute(&engine(), &Command::Get { mimetype: "video/mp4".to_string() }, false, false);
         assert_eq!(out.stdout, "mpv.desktop");
         assert_eq!(out.code, 0);
     }
 
     #[test]
     fn unknown_path_json_error_envelope() {
-        let out = execute(&engine(), &Command::Ls { path: Some("Nope".to_string()) }, true);
+        let out = execute(&engine(), &Command::Ls { path: Some("Nope".to_string()) }, true, false);
         assert_eq!(out.code, 1);
         let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
         assert_eq!(v["error"]["kind"], "unknown-path");
@@ -402,7 +413,7 @@ mod tests {
 
     #[test]
     fn unknown_path_human_error_to_stderr() {
-        let out = execute(&engine(), &Command::Ls { path: Some("Nope".to_string()) }, false);
+        let out = execute(&engine(), &Command::Ls { path: Some("Nope".to_string()) }, false, false);
         assert_eq!(out.code, 1);
         assert!(out.stdout.is_empty());
         assert!(out.stderr.contains("error:"));
@@ -418,7 +429,7 @@ mod tests {
             no_clobber: false,
             dry_run: true,
         };
-        let out = execute(&engine(), &cmd, true);
+        let out = execute(&engine(), &cmd, true, false);
         assert_eq!(out.code, 0);
         let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
         assert_eq!(v["set_types"], serde_json::json!(["audio/mpeg", "video/mp4", "video/x-matroska"]));
@@ -430,7 +441,7 @@ mod tests {
 
     #[test]
     fn app_json_reports_rows() {
-        let out = execute(&engine(), &Command::App { id: "mpv".to_string() }, true);
+        let out = execute(&engine(), &Command::App { id: "mpv".to_string() }, true, false);
         assert_eq!(out.code, 0);
         let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
         assert_eq!(v["id"], "mpv.desktop");
@@ -452,7 +463,7 @@ mod tests {
             no_clobber: true,
             dry_run: true,
         };
-        let out = execute(&engine(), &cmd, false);
+        let out = execute(&engine(), &cmd, false, false);
         assert_eq!(out.code, 0);
         assert!(out.stdout.contains("kept (already set): video/mp4"));
     }
@@ -478,5 +489,29 @@ mod tests {
         let out3 = init_outcome(&path, true, true);
         let v3: serde_json::Value = serde_json::from_str(&out3.stdout).unwrap();
         assert_eq!(v3["written"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn ls_empty_after_filter_prints_hint() {
+        let f = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let tmp = std::env::temp_dir().join("madft-cli-empty-filter");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("madft")).unwrap();
+        std::fs::write(
+            tmp.join("madft/categories.toml"),
+            "[\"Ghost\"]\ntypes = [\"application/pdf\", \"application/octet-stream\"]\n",
+        )
+        .unwrap();
+        let roots = Roots {
+            data_home: tmp.clone(),
+            data_dirs: vec![f.clone()],
+            config_home: tmp.clone(),
+            config_dirs: vec![],
+        };
+        let e = Engine::load(&roots, &[]).unwrap();
+        let out = execute(&e, &Command::Ls { path: Some("Ghost".to_string()) }, false, false);
+        assert!(out.stdout.contains("nothing installed under Ghost"));
+        let out_all = execute(&e, &Command::Ls { path: Some("Ghost".to_string()) }, false, true);
+        assert!(out_all.stdout.contains("application/pdf"));
     }
 }
