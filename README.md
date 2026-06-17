@@ -113,7 +113,7 @@ Every command emits a stable, additive JSON schema for scripting and front-ends:
 {
   "id": "nvim.desktop",
   "name": "Neovim",
-  "declares": 2,
+  "declares": 1,
   "default_for": 1,
   "types": [
     {"mime": "text/css",   "category": "Web",       "declares": false, "is_default": true,  "current_default": "nvim.desktop"},
