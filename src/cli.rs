@@ -240,10 +240,19 @@ fn human_app(r: &AppReport) -> String {
         r.id, r.name, r.declares, r.default_for
     ));
     for t in &r.types {
-        let star = if t.is_default { "★" } else { " " };
+        let tag = if t.is_default { "DEFAULT" } else { "       " };
         let cat = t.category.as_deref().unwrap_or("—");
-        let def = t.current_default.as_deref().unwrap_or("—");
-        s.push_str(&format!("  {star} {}  [{cat}]  (default: {def})\n", t.mime));
+        let note = if !t.declares {
+            "  (not declared)".to_string()
+        } else if !t.is_default {
+            match &t.current_default {
+                Some(d) => format!("  (default: {d})"),
+                None => String::new(),
+            }
+        } else {
+            String::new()
+        };
+        s.push_str(&format!("  {tag}  {}  [{cat}]{note}\n", t.mime));
     }
     s.trim_end().to_string()
 }
@@ -489,6 +498,33 @@ mod tests {
         let out3 = init_outcome(&path, true, true);
         let v3: serde_json::Value = serde_json::from_str(&out3.stdout).unwrap();
         assert_eq!(v3["written"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn human_app_marks_undeclared_default_row() {
+        use std::path::PathBuf;
+        let f = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let cfg = std::env::temp_dir().join("madft-cli-app-undeclared");
+        let _ = std::fs::remove_dir_all(&cfg);
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(
+            cfg.join("mimeapps.list"),
+            "[Default Applications]\nimage/png=mpv.desktop\n",
+        )
+        .unwrap();
+        let roots = Roots {
+            data_home: f.join("engine"),
+            data_dirs: vec![f.clone()],
+            config_home: cfg.clone(),
+            config_dirs: vec![],
+        };
+        let e = Engine::load(&roots, &[]).unwrap();
+        let out = execute(&e, &Command::App { id: "mpv".to_string() }, false, false);
+        assert_eq!(out.code, 0);
+        // mpv is default for image/png but doesn't declare it.
+        assert!(out.stdout.contains("DEFAULT  image/png"));
+        assert!(out.stdout.contains("(not declared)"));
+        assert!(out.stdout.lines().filter(|l| l.contains("DEFAULT")).count() >= 1);
     }
 
     #[test]
