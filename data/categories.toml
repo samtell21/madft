@@ -1,21 +1,109 @@
 # madft's built-in default category tree. `madft init` copies this to
 # ~/.local/share/madft/categories.toml so you can edit it. Any mimetype not
-# placed here falls into a flat "Other" node automatically.
+# placed here falls into a flat "Other" node automatically. By default madft
+# hides types/categories with no installed app; pass --all to see everything.
 
 ["Media.Video"]
-types = ["video/mp4", "video/x-matroska", "video/webm", "video/quicktime", "video/mpeg", "video/x-msvideo"]
+types = ["video/mp4", "video/x-matroska", "video/webm", "video/quicktime", "video/mpeg", "video/x-msvideo", "video/x-flv", "video/x-ms-wmv", "video/3gpp", "video/ogg", "video/mp2t", "video/x-m4v", "video/dv"]
 
 ["Media.Audio"]
-types = ["audio/mpeg", "audio/flac", "audio/ogg", "audio/x-vorbis+ogg", "audio/x-wav", "audio/aac", "audio/opus"]
+types = ["audio/mpeg", "audio/flac", "audio/ogg", "audio/x-vorbis+ogg", "audio/x-wav", "audio/aac", "audio/opus", "audio/x-m4a", "audio/mp4", "audio/x-aiff", "audio/x-ape", "audio/x-musepack", "audio/x-wavpack", "audio/midi", "audio/webm"]
+
+["Media.Playlists"]
+types = ["audio/x-mpegurl", "application/vnd.apple.mpegurl", "audio/x-scpls", "application/xspf+xml", "audio/x-ms-asx"]
 
 ["Images"]
-types = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", "image/tiff", "image/bmp"]
+types = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/tiff", "image/bmp", "image/x-icon", "image/heif", "image/heic", "image/avif", "image/jxl", "image/x-xpixmap", "image/x-portable-pixmap", "image/x-tga", "image/x-pcx", "image/x-xcf"]
+
+["Images.Vector"]
+types = ["image/svg+xml", "image/svg+xml-compressed", "image/x-eps"]
+
+["Images.Raw"]
+types = ["image/x-canon-cr2", "image/x-canon-crw", "image/x-nikon-nef", "image/x-sony-arw", "image/x-adobe-dng", "image/x-fuji-raf", "image/x-panasonic-rw2", "image/x-olympus-orf", "image/x-pentax-pef"]
 
 ["Documents"]
-types = ["application/pdf", "application/epub+zip", "text/plain", "text/markdown", "application/vnd.oasis.opendocument.text", "application/msword", "application/rtf"]
+types = ["application/pdf", "application/postscript", "image/vnd.djvu", "application/x-dvi", "application/oxps", "application/vnd.ms-xpsdocument"]
+
+["Documents.Ebooks"]
+types = ["application/epub+zip", "application/x-mobipocket-ebook", "application/vnd.amazon.ebook", "application/x-fictionbook+xml", "application/vnd.comicbook+zip", "application/vnd.comicbook-rar"]
+
+["Documents.Office.Wordprocessor"]
+types = ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.oasis.opendocument.text", "application/rtf", "application/x-abiword", "application/vnd.wordperfect"]
+
+["Documents.Office.Spreadsheet"]
+types = ["application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.oasis.opendocument.spreadsheet", "text/csv", "text/tab-separated-values", "application/x-gnumeric"]
+
+["Documents.Office.Presentation"]
+types = ["application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/vnd.oasis.opendocument.presentation"]
+
+["Text"]
+types = ["text/plain"]
+
+["Text.Markup"]
+types = ["text/markdown", "text/x-rst", "text/troff", "text/x-tex", "text/x-latex"]
+
+["Text.Development"]
+types = ["application/x-ipynb+json"]
+
+["Text.Development.Python"]
+types = ["text/x-python", "text/x-python3", "text/x-script.python"]
+
+["Text.Development.Rust"]
+types = ["text/rust", "text/x-rust"]
+
+["Text.Development.C"]
+types = ["text/x-csrc", "text/x-chdr"]
+
+["Text.Development.Cpp"]
+types = ["text/x-c++src", "text/x-c++hdr"]
+
+["Text.Development.Go"]
+types = ["text/x-go"]
+
+["Text.Development.JavaScript"]
+types = ["text/javascript", "application/x-typescript", "text/jsx"]
+
+["Text.Development.Java"]
+types = ["text/x-java", "text/x-java-source"]
+
+["Text.Development.Ruby"]
+types = ["application/x-ruby"]
+
+["Text.Development.PHP"]
+types = ["application/x-php"]
+
+["Text.Development.Shell"]
+types = ["application/x-shellscript", "text/x-sh"]
+
+["Text.Development.Lua"]
+types = ["text/x-lua"]
+
+["Text.Development.Perl"]
+types = ["application/x-perl"]
+
+["Text.Development.Haskell"]
+types = ["text/x-haskell"]
+
+["Text.Development.SQL"]
+types = ["application/sql", "text/x-sql"]
+
+["Text.Development.Web"]
+types = ["text/css", "text/x-scss", "text/x-less"]
+
+["Text.Development.Config"]
+types = ["application/json", "application/yaml", "application/toml", "application/xml", "text/x-ini", "application/x-desktop"]
 
 ["Web"]
-types = ["text/html", "application/xhtml+xml"]
+types = ["text/html", "application/xhtml+xml", "application/rss+xml", "application/atom+xml"]
 
 ["Archives"]
-types = ["application/zip", "application/x-tar", "application/gzip", "application/x-7z-compressed", "application/x-xz", "application/x-bzip2", "application/vnd.rar"]
+types = ["application/zip", "application/x-tar", "application/gzip", "application/x-bzip2", "application/x-xz", "application/x-7z-compressed", "application/vnd.rar", "application/zstd", "application/x-lzma", "application/x-compressed-tar", "application/x-bzip-compressed-tar", "application/x-xz-compressed-tar", "application/x-cpio", "application/vnd.ms-cab-compressed", "application/x-lzip"]
+
+["Archives.Packages"]
+types = ["application/vnd.debian.binary-package", "application/x-rpm", "application/vnd.flatpak", "application/vnd.appimage", "application/vnd.android.package-archive", "application/vnd.snap"]
+
+["Archives.DiskImages"]
+types = ["application/x-cd-image", "application/x-apple-diskimage", "application/x-raw-disk-image"]
+
+["Fonts"]
+types = ["font/ttf", "font/otf", "font/woff", "font/woff2", "font/collection", "application/x-font-type1", "application/x-font-pcf"]

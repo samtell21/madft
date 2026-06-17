@@ -261,7 +261,13 @@ types = ["video/mp4", "video/mp4"]
     fn default_categories_is_valid() {
         let specs = parse_categories(DEFAULT_CATEGORIES, "<built-in>").unwrap();
         assert!(!specs.is_empty());
-        assert!(specs.iter().any(|s| s.path == "Media.Video"));
-        assert!(specs.iter().any(|s| s.path == "Images"));
+        // Representative placements resolve to their intended paths.
+        let at = |p: &str| specs.iter().find(|s| s.path == p).unwrap_or_else(|| panic!("no {p}"));
+        assert!(at("Media.Video").types.contains(&MimeType::new("video/mp4")));
+        assert!(at("Images.Vector").types.contains(&MimeType::new("image/svg+xml")));
+        assert!(at("Documents.Office.Spreadsheet").types.contains(&MimeType::new("text/csv")));
+        assert!(at("Text.Development.Python").types.contains(&MimeType::new("text/x-python")));
+        assert!(at("Text.Development").types.contains(&MimeType::new("application/x-ipynb+json")));
+        assert!(at("Archives.Packages").types.contains(&MimeType::new("application/vnd.flatpak")));
     }
 }
