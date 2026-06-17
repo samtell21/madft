@@ -40,17 +40,38 @@ pub struct AppRef {
     pub name: String,
 }
 
-/// Result of `info` for one mimetype. `comment` is deferred (always `None` in
-/// the MVP — spec §9). The mimetype is alias-canonicalized.
+/// The effective default for a type: which app opens it, and via which ancestor
+/// (`via == None` means the type's own exact default). The OUTER `Option` being
+/// `None` means no default at all — exact or inherited.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct DefaultRef {
+    pub app: String,
+    pub via: Option<String>,
+}
+
+/// An app that can open a type only via inheritance (it declares an ancestor, not
+/// the type itself), tagged with the nearest such ancestor.
+#[derive(Serialize, Debug)]
+pub struct InheritableApp {
+    pub id: String,
+    pub name: String,
+    pub via: String,
+}
+
+/// Result of `info` for one mimetype. `comment` is deferred (always `None`).
+/// `default` is the effective default (exact or inherited). `inheritable_apps`
+/// are apps that can open it via an ancestor. The mimetype is alias-canonicalized.
 #[derive(Serialize, Debug)]
 pub struct TypeInfo {
     pub mime: String,
     pub category: Option<String>,
     pub comment: Option<String>,
-    pub current_default: Option<String>,
+    pub default: Option<DefaultRef>,
     pub applicable_count: usize,
+    pub inheritable_count: usize,
     pub ancestor_types: Vec<String>,
     pub applicable_apps: Vec<AppRef>,
+    pub inheritable_apps: Vec<InheritableApp>,
 }
 
 /// One app's coverage of an umbrella: which of the umbrella's types it declares.
@@ -164,6 +185,43 @@ impl Engine {
         !self.openable(t)
     }
 
+    /// The effective default for `t`: the exact `current_default` if set (via =
+    /// None), else the default of the nearest ancestor that has one (via = that
+    /// ancestor), else None.
+    fn effective_default(&self, t: &MimeType) -> Option<DefaultRef> {
+        if let Some(d) = self.defaults.current_default(t) {
+            return Some(DefaultRef { app: d.to_string(), via: None });
+        }
+        for anc in self.mimedb.ancestor_types(t) {
+            if let Some(d) = self.defaults.current_default(&anc) {
+                return Some(DefaultRef { app: d.to_string(), via: Some(anc.to_string()) });
+            }
+        }
+        None
+    }
+
+    /// Apps that can open `t` only via inheritance: they declare an ancestor of
+    /// `t` but not `t` itself. Each is tagged with the NEAREST ancestor it
+    /// declares (ancestors are walked nearest-first). Distinct apps, sorted by id.
+    fn inheritable_apps(&self, t: &MimeType) -> Vec<InheritableApp> {
+        let mut seen: std::collections::BTreeSet<DesktopId> =
+            self.appindex.apps_for_type(t).iter().map(|a| a.id.clone()).collect();
+        let mut out: Vec<InheritableApp> = Vec::new();
+        for anc in self.mimedb.ancestor_types(t) {
+            for a in self.appindex.apps_for_type(&anc) {
+                if seen.insert(a.id.clone()) {
+                    out.push(InheritableApp {
+                        id: a.id.to_string(),
+                        name: a.name.clone(),
+                        via: anc.to_string(),
+                    });
+                }
+            }
+        }
+        out.sort_by(|x, y| x.id.cmp(&y.id));
+        out
+    }
+
     /// True if any type anywhere under `id` is app-backed (not inert). Used to
     /// decide whether a category is worth showing in the default (filtered) view.
     fn subtree_has_app_backed_type(&self, id: CategoryId) -> bool {
@@ -254,8 +312,9 @@ impl Engine {
             .collect())
     }
 
-    /// `info <mimetype>`: canonical name, current default, applicable apps, and
-    /// the inherit-if-unset `ancestor_types` chain. `comment` is deferred.
+    /// `info <mimetype>`: canonical name, effective default (exact or inherited),
+    /// applicable apps, inheritable apps, and the `ancestor_types` chain. `comment`
+    /// is deferred.
     pub fn info(&self, mime: &str) -> Result<TypeInfo> {
         let canon = self.mimedb.canonicalize(&MimeType::new(mime));
         let mut applicable_apps: Vec<AppRef> = self
@@ -265,12 +324,14 @@ impl Engine {
             .map(|a| AppRef { id: a.id.to_string(), name: a.name.clone() })
             .collect();
         applicable_apps.sort_by(|a, b| a.id.cmp(&b.id));
+        let inheritable_apps = self.inheritable_apps(&canon);
         Ok(TypeInfo {
             mime: canon.to_string(),
             category: self.tree.category_of(&canon).map(|id| self.tree.path(id)),
             comment: None,
-            current_default: self.defaults.current_default(&canon).map(|d| d.to_string()),
+            default: self.effective_default(&canon),
             applicable_count: applicable_apps.len(),
+            inheritable_count: inheritable_apps.len(),
             ancestor_types: self
                 .mimedb
                 .ancestor_types(&canon)
@@ -278,6 +339,7 @@ impl Engine {
                 .map(|t| t.to_string())
                 .collect(),
             applicable_apps,
+            inheritable_apps,
         })
     }
 
@@ -472,6 +534,34 @@ mod tests {
         let info = e.info("image/svg+xml").unwrap();
         assert_eq!(info.ancestor_types, vec!["application/xml", "text/plain"]);
         assert_eq!(info.category.as_deref(), Some("Other"));
+    }
+
+    #[test]
+    fn info_effective_default_is_inherited() {
+        let f = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let cfg = std::env::temp_dir().join("madft-info-effective");
+        let _ = std::fs::remove_dir_all(&cfg);
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(cfg.join("mimeapps.list"), "[Default Applications]\ntext/plain=nvim.desktop\n").unwrap();
+        let roots = Roots {
+            data_home: f.join("engine"),
+            data_dirs: vec![f.clone()],
+            config_home: cfg.clone(),
+            config_dirs: vec![],
+        };
+        let e = Engine::load(&roots, &[]).unwrap();
+
+        let xml = e.info("application/xml").unwrap();
+        let d = xml.default.expect("effective default");
+        assert_eq!(d.app, "nvim.desktop");
+        assert_eq!(d.via.as_deref(), Some("text/plain"));
+        assert!(xml.inheritable_apps.iter().any(|a| a.id == "nvim.desktop" && a.via == "text/plain"));
+        assert_eq!(xml.applicable_count, 0);
+
+        let plain = e.info("text/plain").unwrap();
+        let dp = plain.default.expect("exact default");
+        assert_eq!(dp.app, "nvim.desktop");
+        assert_eq!(dp.via, None);
     }
 
     #[test]

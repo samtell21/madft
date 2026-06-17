@@ -206,10 +206,23 @@ fn human_info(i: &TypeInfo) -> String {
     if let Some(c) = &i.comment {
         s.push_str(&format!("  comment: {c}\n"));
     }
-    s.push_str(&format!("  default: {}\n", i.current_default.as_deref().unwrap_or("(none)")));
+    let def = match &i.default {
+        Some(d) => match &d.via {
+            Some(v) => format!("{} (via {v})", d.app),
+            None => d.app.clone(),
+        },
+        None => "(none)".to_string(),
+    };
+    s.push_str(&format!("  default: {def}\n"));
     s.push_str(&format!("  applicable apps: {}\n", i.applicable_count));
     for a in &i.applicable_apps {
         s.push_str(&format!("    - {} ({})\n", a.id, a.name));
+    }
+    if !i.inheritable_apps.is_empty() {
+        s.push_str(&format!("  inheritable apps: {}\n", i.inheritable_apps.len()));
+        for a in &i.inheritable_apps {
+            s.push_str(&format!("    - {} ({}) \u{2014} via {}\n", a.id, a.name, a.via));
+        }
     }
     if !i.ancestor_types.is_empty() {
         s.push_str(&format!("  inherits if unset: {}\n", i.ancestor_types.join(", ")));
