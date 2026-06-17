@@ -4,7 +4,7 @@
 //! 4's CLI. All inputs derive from an injectable `Roots`, so tests run against
 //! fixture trees with zero host reliance.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
@@ -805,11 +805,13 @@ mod write_tests {
     }
 }
 
-/// One declared mimetype in an `AppReport`.
+/// One mimetype row in an `AppReport`: a type the app declares and/or is the
+/// current default for. `declares` is false for default-for-but-undeclared rows.
 #[derive(serde::Serialize, Debug)]
 pub struct AppTypeRow {
     pub mime: String,
     pub category: Option<String>,
+    pub declares: bool,
     pub is_default: bool,
     pub current_default: Option<String>,
 }
@@ -826,9 +828,11 @@ pub struct AppReport {
 }
 
 impl Engine {
-    /// `app <id>`: the app's (canonical) declared mimetypes, the category each
-    /// falls in, and whether this app is currently the default for it. Rows are
-    /// ordered default-first, then by mimetype. Unknown app → `UnknownApp`.
+    /// `app <id>`: the app's declared mimetypes UNION the types it is currently
+    /// the default for (even undeclared ones), each tagged with `declares`. The
+    /// category each falls in, and whether this app is currently the default for
+    /// it, are included. Rows are ordered default-first, then by mimetype.
+    /// Unknown app → `UnknownApp`.
     pub fn app(&self, id: &str) -> Result<AppReport> {
         let app_id = DesktopId::new(id);
         let app = self
@@ -836,19 +840,34 @@ impl Engine {
             .app(&app_id)
             .ok_or_else(|| Error::UnknownApp(app_id.to_string()))?;
 
-        // Distinct canonical declared types.
-        let mut canon: Vec<MimeType> =
-            app.mimetypes.iter().map(|t| self.mimedb.canonicalize(t)).collect();
-        canon.sort();
-        canon.dedup();
+        // Effective default per CANONICAL type (highest-precedence wins; first
+        // also wins on canonical collision). Used for both the reverse lookup and
+        // per-row default detection, so alias-keyed defaults resolve consistently.
+        let mut effective: BTreeMap<MimeType, DesktopId> = BTreeMap::new();
+        for (t, d) in self.defaults.effective_defaults() {
+            effective.entry(self.mimedb.canonicalize(&t)).or_insert(d);
+        }
 
-        let mut types: Vec<AppTypeRow> = canon
+        // Declared (canonical, deduped).
+        let declared_set: BTreeSet<MimeType> =
+            app.mimetypes.iter().map(|t| self.mimedb.canonicalize(t)).collect();
+
+        // Row set = declared ∪ types this app is the effective default for.
+        let mut row_types: BTreeSet<MimeType> = declared_set.clone();
+        for (t, d) in &effective {
+            if *d == app_id {
+                row_types.insert(t.clone());
+            }
+        }
+
+        let mut types: Vec<AppTypeRow> = row_types
             .iter()
             .map(|t| {
-                let cur = self.defaults.current_default(t);
+                let cur = effective.get(t).cloned();
                 AppTypeRow {
                     mime: t.to_string(),
                     category: self.tree.category_of(t).map(|cid| self.tree.path(cid)),
+                    declares: declared_set.contains(t),
                     is_default: cur.as_ref() == Some(&app_id),
                     current_default: cur.map(|d| d.to_string()),
                 }
@@ -856,11 +875,12 @@ impl Engine {
             .collect();
         types.sort_by(|a, b| b.is_default.cmp(&a.is_default).then_with(|| a.mime.cmp(&b.mime)));
 
+        let declares = types.iter().filter(|r| r.declares).count();
         let default_for = types.iter().filter(|r| r.is_default).count();
         Ok(AppReport {
             id: app_id.to_string(),
             name: app.name.clone(),
-            declares: types.len(),
+            declares,
             default_for,
             types,
         })
@@ -901,5 +921,41 @@ mod app_tests {
     #[test]
     fn app_unknown_errors() {
         assert!(matches!(engine().app("nope"), Err(Error::UnknownApp(_))));
+    }
+
+    #[test]
+    fn app_includes_undeclared_default_type() {
+        // mpv is set as default for image/png, which it does NOT declare.
+        let f = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let cfg = std::env::temp_dir().join("madft-app-undeclared");
+        let _ = std::fs::remove_dir_all(&cfg);
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(
+            cfg.join("mimeapps.list"),
+            "[Default Applications]\nvideo/mp4=mpv.desktop\nimage/png=mpv.desktop\n",
+        )
+        .unwrap();
+        let roots = Roots {
+            data_home: f.join("engine"),
+            data_dirs: vec![f.clone()],
+            config_home: cfg.clone(),
+            config_dirs: vec![],
+        };
+        let e = Engine::load(&roots, &[]).unwrap();
+        let r = e.app("mpv").unwrap();
+        // 3 declared types; default for video/mp4 (declared) + image/png (undeclared).
+        assert_eq!(r.declares, 3);
+        assert_eq!(r.default_for, 2);
+        let png = r.types.iter().find(|t| t.mime == "image/png").unwrap();
+        assert!(!png.declares);
+        assert!(png.is_default);
+        assert_eq!(png.current_default.as_deref(), Some("mpv.desktop"));
+        assert_eq!(png.category.as_deref(), Some("Media.Images"));
+        let mp4 = r.types.iter().find(|t| t.mime == "video/mp4").unwrap();
+        assert!(mp4.declares);
+        assert!(mp4.is_default);
+        let audio = r.types.iter().find(|t| t.mime == "audio/mpeg").unwrap();
+        assert!(audio.declares);
+        assert!(!audio.is_default);
     }
 }
