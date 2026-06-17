@@ -16,13 +16,14 @@ use crate::mimedb::MimeDb;
 use crate::paths::Roots;
 use crate::types::{DesktopId, MimeType};
 
-/// A leaf type as shown by `ls`: the type, its current default, and how many
-/// apps declare it.
+/// A leaf type as shown by `ls`: the type, its effective default, how many apps
+/// declare it exactly, and how many more could open it via inheritance.
 #[derive(Serialize, Debug)]
 pub struct LeafType {
     pub mime: String,
-    pub current_default: Option<String>,
+    pub default: Option<DefaultRef>,
     pub applicable_count: usize,
+    pub inheritable_count: usize,
 }
 
 /// Result of `ls`: a node's child categories (dotted paths) and direct leaf types.
@@ -163,8 +164,9 @@ impl Engine {
     fn leaf_type(&self, t: &MimeType) -> LeafType {
         LeafType {
             mime: t.to_string(),
-            current_default: self.defaults.current_default(t).map(|d| d.to_string()),
+            default: self.effective_default(t),
             applicable_count: self.appindex.apps_for_type(t).len(),
+            inheritable_count: self.inheritable_apps(t).len(),
         }
     }
 
@@ -417,8 +419,9 @@ mod tests {
         assert_eq!(r.subcategories, vec!["Media.Audio", "Media.Images", "Media.Video"]);
         assert_eq!(r.types.len(), 1);
         assert_eq!(r.types[0].mime, "application/ogg");
-        assert_eq!(r.types[0].current_default, None);
+        assert!(r.types[0].default.is_none());
         assert_eq!(r.types[0].applicable_count, 0);
+        assert_eq!(r.types[0].inheritable_count, 0);
     }
 
     #[test]
@@ -623,6 +626,30 @@ mod tests {
         let e = engine();
         assert_eq!(e.get("video/mp4"), Some("mpv.desktop".to_string()));
         assert_eq!(e.get("image/png"), None);
+    }
+
+    #[test]
+    fn ls_leaf_carries_effective_default_and_inheritable_count() {
+        let f = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let cfg = std::env::temp_dir().join("madft-ls-effective");
+        let _ = std::fs::remove_dir_all(&cfg);
+        std::fs::create_dir_all(cfg.join("madft")).unwrap();
+        std::fs::write(cfg.join("madft/categories.toml"), "[\"Docs\"]\ntypes = [\"application/xml\"]\n").unwrap();
+        std::fs::write(cfg.join("mimeapps.list"), "[Default Applications]\ntext/plain=nvim.desktop\n").unwrap();
+        let roots = Roots {
+            data_home: cfg.clone(),
+            data_dirs: vec![f.clone()],
+            config_home: cfg.clone(),
+            config_dirs: vec![],
+        };
+        let e = Engine::load(&roots, &[]).unwrap();
+        let r = e.ls(Some("Docs"), false).unwrap();
+        let xml = r.types.iter().find(|t| t.mime == "application/xml").expect("xml shown (openable via inherit)");
+        let d = xml.default.as_ref().expect("inherited default");
+        assert_eq!(d.app, "nvim.desktop");
+        assert_eq!(d.via.as_deref(), Some("text/plain"));
+        assert_eq!(xml.applicable_count, 0);
+        assert_eq!(xml.inheritable_count, 1);
     }
 
     #[test]

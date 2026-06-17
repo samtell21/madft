@@ -191,8 +191,22 @@ fn human_ls(r: &LsResult, show_all: bool) -> String {
         s.push_str("types:\n");
     }
     for t in &r.types {
-        let def = t.current_default.as_deref().unwrap_or("(none)");
-        s.push_str(&format!("{indent}{}  [default: {def}, apps: {}]\n", t.mime, t.applicable_count));
+        let def = match &t.default {
+            Some(d) => match &d.via {
+                Some(v) => format!("{} (via {v})", d.app),
+                None => d.app.clone(),
+            },
+            None => "(none)".to_string(),
+        };
+        let inh = if t.inheritable_count > 0 {
+            format!(", +{} via inherit", t.inheritable_count)
+        } else {
+            String::new()
+        };
+        s.push_str(&format!(
+            "{indent}{}  [default: {def}, apps: {}{inh}]\n",
+            t.mime, t.applicable_count
+        ));
     }
     s.trim_end().to_string()
 }
