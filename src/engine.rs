@@ -147,9 +147,21 @@ impl Engine {
         }
     }
 
-    /// A type is inert when no installed app declares it (nothing can open it).
+    /// True if any installed app can OPEN `t` — declares it exactly, or declares
+    /// one of its ancestors in the subclass DAG (so it opens via inheritance).
+    fn openable(&self, t: &MimeType) -> bool {
+        !self.appindex.apps_for_type(t).is_empty()
+            || self
+                .mimedb
+                .ancestor_types(t)
+                .iter()
+                .any(|a| !self.appindex.apps_for_type(a).is_empty())
+    }
+
+    /// A type is inert when nothing can open it (no exact handler and no
+    /// inherited handler). Inert types are hidden by the default presence filter.
     fn type_is_inert(&self, t: &MimeType) -> bool {
-        self.appindex.apps_for_type(t).is_empty()
+        !self.openable(t)
     }
 
     /// True if any type anywhere under `id` is app-backed (not inert). Used to
@@ -381,13 +393,26 @@ mod tests {
     }
 
     #[test]
-    fn ls_other_hides_inert_types_but_keeps_app_backed() {
+    fn ls_other_presence_is_inheritance_aware() {
         let e = engine();
         let r = e.ls(Some("Other"), false).unwrap();
         let mimes: Vec<&str> = r.types.iter().map(|t| t.mime.as_str()).collect();
-        assert!(mimes.contains(&"text/plain"));
-        assert!(!mimes.contains(&"application/xml"));
+        assert!(mimes.contains(&"text/plain")); // exact (nvim)
+        // application/xml has no exact declarer but inherits text/plain (nvim) -> now shown.
+        assert!(mimes.contains(&"application/xml"));
+        // application/octet-stream: no declarer, no ancestors -> still hidden.
         assert!(!mimes.contains(&"application/octet-stream"));
+    }
+
+    #[test]
+    fn openable_via_inheritance() {
+        let e = engine();
+        // application/xml: no exact declarer, but inherits text/plain (nvim) -> openable.
+        assert!(!e.type_is_inert(&MimeType::new("application/xml")));
+        // application/octet-stream: no declarer, no ancestors -> inert.
+        assert!(e.type_is_inert(&MimeType::new("application/octet-stream")));
+        // image/png: exact declarer (eog) -> openable.
+        assert!(!e.type_is_inert(&MimeType::new("image/png")));
     }
 
     #[test]
