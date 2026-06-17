@@ -61,7 +61,8 @@ fn golden_mpv_in_media_dry_run_json() {
     assert_eq!(v["app"], "mpv.desktop");
     assert_eq!(v["target"], "Media");
     assert_eq!(v["set_types"], serde_json::json!(["audio/mpeg", "video/mp4", "video/x-matroska"]));
-    assert_eq!(v["skipped_types"], serde_json::json!(["application/ogg", "image/png", "image/jpeg"]));
+    // Filtered umbrella (cli defaults to show_all=false): inert application/ogg is gone.
+    assert_eq!(v["skipped_types"], serde_json::json!(["image/png", "image/jpeg"]));
     assert_eq!(v["dry_run"], serde_json::json!(true));
     assert_eq!(v["written"], serde_json::json!(false));
 }
@@ -223,4 +224,40 @@ fn golden_set_no_clobber_fills_only_blanks() {
     let v2: serde_json::Value = serde_json::from_str(&out2.stdout).unwrap();
     assert_eq!(v2["set_types"], v["set_types"]);
     assert_eq!(v2["no_clobber"], serde_json::json!(true));
+}
+
+#[test]
+fn golden_ls_hides_inert_by_default_shows_with_all() {
+    // application/ogg under Media is inert (no app). Hidden by default, shown with --all.
+    let def = parse(&["madft", "ls", "Media", "--json"]);
+    let out = execute(&read_engine(), &def.command, def.json, def.all);
+    let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    let mimes: Vec<&str> = v["types"].as_array().unwrap().iter().map(|t| t["mime"].as_str().unwrap()).collect();
+    assert!(!mimes.contains(&"application/ogg"));
+
+    let all = parse(&["madft", "ls", "Media", "--all", "--json"]);
+    let out2 = execute(&read_engine(), &all.command, all.json, all.all);
+    let v2: serde_json::Value = serde_json::from_str(&out2.stdout).unwrap();
+    let mimes2: Vec<&str> = v2["types"].as_array().unwrap().iter().map(|t| t["mime"].as_str().unwrap()).collect();
+    assert!(mimes2.contains(&"application/ogg"));
+}
+
+#[test]
+fn golden_set_explicit_inert_type_bypasses_filter() {
+    // application/pdf is inert; naming it explicitly + --force sets it even without --all.
+    let cli = parse(&["madft", "set", "mpv", "application/pdf", "--force", "--dry-run", "--json"]);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
+    assert_eq!(out.code, 0);
+    let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    assert_eq!(v["set_types"], serde_json::json!(["application/pdf"]));
+}
+
+#[test]
+fn golden_short_a_flag_parses_as_all() {
+    // -a is the short form of --all.
+    let cli = parse(&["madft", "ls", "Media", "-a", "--json"]);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
+    let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    let mimes: Vec<&str> = v["types"].as_array().unwrap().iter().map(|t| t["mime"].as_str().unwrap()).collect();
+    assert!(mimes.contains(&"application/ogg"));
 }
