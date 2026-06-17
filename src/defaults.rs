@@ -6,7 +6,7 @@
 //! cross-check and `[Removed Associations]` handling are layered in by the
 //! engine (Plan 3); for current-default DISPLAY this matches the dominant case.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use crate::error::{Error, Result};
@@ -59,6 +59,20 @@ impl Defaults {
     pub fn current_default(&self, t: &MimeType) -> Option<DesktopId> {
         self.files.iter().find_map(|m| m.get(t).cloned())
     }
+
+    /// The effective default per type across the precedence chain (highest file
+    /// wins per type), folded into one deterministic map. Keys are as-written in
+    /// mimeapps.list — callers canonicalize. The reverse of `current_default`,
+    /// for "what is this app the default for?".
+    pub fn effective_defaults(&self) -> BTreeMap<MimeType, DesktopId> {
+        let mut out: BTreeMap<MimeType, DesktopId> = BTreeMap::new();
+        for file in &self.files {
+            for (t, d) in file {
+                out.entry(t.clone()).or_insert_with(|| d.clone());
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -104,5 +118,22 @@ mod tests {
     fn missing_files_are_skipped() {
         let d = Defaults::load(&[file("tests/fixtures/does-not-exist.list")]).unwrap();
         assert_eq!(d.current_default(&MimeType::new("video/mp4")), None);
+    }
+
+    #[test]
+    fn effective_defaults_folds_precedence() {
+        let d = Defaults::load(&[
+            file("tests/fixtures/config-high/mimeapps.list"),
+            file("tests/fixtures/config/mimeapps.list"),
+        ])
+        .unwrap();
+        let eff = d.effective_defaults();
+        // text/html is in both files; the higher-precedence (first) file wins.
+        assert_eq!(
+            eff.get(&MimeType::new("text/html")),
+            Some(&DesktopId::new("org.mozilla.firefox"))
+        );
+        // video/mp4 is only in the lower file, still present.
+        assert_eq!(eff.get(&MimeType::new("video/mp4")), Some(&DesktopId::new("mpv")));
     }
 }
