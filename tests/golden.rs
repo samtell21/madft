@@ -298,3 +298,44 @@ fn golden_app_includes_undeclared_default() {
     assert_eq!(png["current_default"], "mpv.desktop");
     assert_eq!(v["default_for"], 1);
 }
+
+#[test]
+fn golden_info_shows_inherited_default_json() {
+    let f = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let cfg = std::env::temp_dir().join("madft-golden-info-inherit");
+    let _ = std::fs::remove_dir_all(&cfg);
+    std::fs::create_dir_all(&cfg).unwrap();
+    std::fs::write(cfg.join("mimeapps.list"), "[Default Applications]\ntext/plain=nvim.desktop\n").unwrap();
+    let roots = Roots {
+        data_home: f.join("engine"),
+        data_dirs: vec![f.clone()],
+        config_home: cfg.clone(),
+        config_dirs: vec![],
+    };
+    let e = Engine::load(&roots, &[]).unwrap();
+    let cli = parse(&["madft", "info", "application/xml", "--json"]);
+    let out = execute(&e, &cli.command, cli.json, cli.all);
+    let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    assert_eq!(v["default"]["app"], "nvim.desktop");
+    assert_eq!(v["default"]["via"], "text/plain");
+    assert_eq!(v["applicable_count"], 0);
+    assert!(v["inheritable_apps"].as_array().unwrap().iter().any(|a| a["id"] == "nvim.desktop"));
+}
+
+#[test]
+fn golden_set_via_inheritance_human() {
+    let cli = parse(&["madft", "set", "nvim", "image/svg+xml", "--dry-run"]);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
+    assert_eq!(out.code, 0);
+    // nvim opens svg via text/plain (application/xml -> text/plain).
+    assert!(out.stdout.contains("image/svg+xml  (via text/plain)"));
+}
+
+#[test]
+fn golden_set_exact_rejects_inherited() {
+    let cli = parse(&["madft", "set", "nvim", "image/svg+xml", "--exact", "--json"]);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
+    assert_eq!(out.code, 1);
+    let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    assert_eq!(v["error"]["kind"], "app-handles-nothing-under-umbrella");
+}
