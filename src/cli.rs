@@ -52,6 +52,9 @@ pub enum Command {
         /// Only set types that currently have no default (don't overwrite).
         #[arg(long, visible_alias = "if-unset")]
         no_clobber: bool,
+        /// Only set types the app declares EXACTLY (don't follow the subclass tree).
+        #[arg(long)]
+        exact: bool,
         /// Print the plan without writing.
         #[arg(long)]
         dry_run: bool,
@@ -133,9 +136,9 @@ fn run_command(engine: &Engine, command: &Command, json: bool, show_all: bool) -
             let r = engine.app(id)?;
             if json { to_json(&r) } else { human_app(&r) }
         }
-        Command::Set { app, target, types, force, no_clobber, dry_run } => {
+        Command::Set { app, target, types, force, no_clobber, exact, dry_run } => {
             let filter = if types.is_empty() { None } else { Some(types.as_slice()) };
-            let opts = SetOptions { force: *force, no_clobber: *no_clobber, show_all, dry_run: *dry_run };
+            let opts = SetOptions { force: *force, no_clobber: *no_clobber, exact: *exact, show_all, dry_run: *dry_run };
             let r = engine.set(app, target.as_deref(), filter, opts)?;
             if json { to_json(&r) } else { human_set(&r) }
         }
@@ -299,8 +302,13 @@ fn human_set(p: &SetPlan) -> String {
         p.target,
         p.set_types.len()
     ));
+    let via: std::collections::HashMap<&str, &str> =
+        p.inherited_via.iter().map(|i| (i.mime.as_str(), i.via.as_str())).collect();
     for t in &p.set_types {
-        s.push_str(&format!("  + {t}\n"));
+        match via.get(t.as_str()) {
+            Some(v) => s.push_str(&format!("  + {t}  (via {v})\n")),
+            None => s.push_str(&format!("  + {t}\n")),
+        }
     }
     if !p.skipped_types.is_empty() {
         s.push_str(&format!(
@@ -463,6 +471,7 @@ mod tests {
             types: vec![],
             force: false,
             no_clobber: false,
+            exact: false,
             dry_run: true,
         };
         let out = execute(&engine(), &cmd, true, false);
@@ -497,6 +506,7 @@ mod tests {
             types: vec![],
             force: false,
             no_clobber: true,
+            exact: false,
             dry_run: true,
         };
         let out = execute(&engine(), &cmd, false, false);

@@ -104,20 +104,31 @@ pub struct SetPlan {
     pub set_types: Vec<String>,
     pub skipped_types: Vec<String>,
     pub unchanged_types: Vec<String>,
+    pub inherited_via: Vec<InheritedSet>,
     pub forced: bool,
     pub no_clobber: bool,
     pub dry_run: bool,
     pub written: bool,
 }
 
+/// One inheritance-matched entry in a `SetPlan`: a `set_types` member matched
+/// because the app declares an ancestor (not the type), plus that ancestor.
+#[derive(Serialize, Debug)]
+pub struct InheritedSet {
+    pub mime: String,
+    pub via: String,
+}
+
 /// Flags for `set`, bundled to keep the signature readable. `show_all` disables
 /// the presence filter on a category/root umbrella; `force` overrides the
 /// exact-declaration guard; `no_clobber` fills only types with no current
-/// default; `dry_run` previews without writing.
+/// default; `exact` restricts to exact declarations only (no inheritance);
+/// `dry_run` previews without writing.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SetOptions {
     pub force: bool,
     pub no_clobber: bool,
+    pub exact: bool,
     pub show_all: bool,
     pub dry_run: bool,
 }
@@ -375,6 +386,18 @@ impl Engine {
             types: umbrella.iter().map(|t| t.to_string()).collect(),
             apps,
         })
+    }
+
+    /// "App handles type T" in the inheritance-aware sense: it declares T, or
+    /// declares some ancestor of T (so it opens T via the subclass chain).
+    fn handles(&self, app_id: &DesktopId, t: &MimeType) -> bool {
+        self.appindex.declares(app_id, t)
+            || self.mimedb.ancestor_types(t).iter().any(|a| self.appindex.declares(app_id, a))
+    }
+
+    /// The nearest ancestor of `t` that `app_id` declares, if any (for "via X").
+    fn nearest_declared_ancestor(&self, app_id: &DesktopId, t: &MimeType) -> Option<MimeType> {
+        self.mimedb.ancestor_types(t).into_iter().find(|a| self.appindex.declares(app_id, a))
     }
 
     /// `get <mimetype>`: the bare current default (scriptable), canonicalized.
@@ -710,7 +733,13 @@ impl Engine {
             if filter.as_ref().is_some_and(|f| !f.contains(t)) {
                 continue;
             }
-            if opts.force || self.appindex.declares(&app_id, t) {
+            // Inheritance-aware handling, unless --exact restricts to exact declares.
+            let handled = if opts.exact {
+                self.appindex.declares(&app_id, t)
+            } else {
+                self.handles(&app_id, t)
+            };
+            if opts.force || handled {
                 candidates.push(t.clone());
             } else {
                 skipped.push(t.clone());
@@ -732,6 +761,16 @@ impl Engine {
             (candidates, Vec::new())
         };
 
+        // Provenance: set_types matched via an ancestor (not exactly declared).
+        let inherited_via: Vec<InheritedSet> = set_types
+            .iter()
+            .filter(|t| !self.appindex.declares(&app_id, t))
+            .filter_map(|t| {
+                self.nearest_declared_ancestor(&app_id, t)
+                    .map(|via| InheritedSet { mime: t.to_string(), via: via.to_string() })
+            })
+            .collect();
+
         let edits: Vec<crate::writer::Edit> = set_types
             .iter()
             .map(|t| crate::writer::Edit::Set(t.clone(), app_id.clone()))
@@ -748,6 +787,7 @@ impl Engine {
             set_types: set_types.iter().map(|t| t.to_string()).collect(),
             skipped_types: skipped.iter().map(|t| t.to_string()).collect(),
             unchanged_types: unchanged.iter().map(|t| t.to_string()).collect(),
+            inherited_via,
             forced: opts.force,
             no_clobber: opts.no_clobber,
             dry_run: opts.dry_run,
@@ -944,6 +984,39 @@ mod write_tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(!content.contains("video/mp4="));
         assert!(!e.unset("video/mp4").unwrap());
+    }
+
+    #[test]
+    fn set_relaxed_guard_matches_via_inheritance() {
+        let e = read_only_engine();
+        let plan = e.set("nvim", Some("image/svg+xml"), None, SetOptions { dry_run: true, ..Default::default() }).unwrap();
+        assert_eq!(plan.set_types, vec!["image/svg+xml"]);
+        assert_eq!(plan.inherited_via.len(), 1);
+        assert_eq!(plan.inherited_via[0].mime, "image/svg+xml");
+        assert_eq!(plan.inherited_via[0].via, "text/plain");
+    }
+
+    #[test]
+    fn set_exact_rejects_inherited_only_target() {
+        let e = read_only_engine();
+        let err = e.set("nvim", Some("image/svg+xml"), None, SetOptions { exact: true, ..Default::default() }).unwrap_err();
+        assert!(matches!(err, Error::AppHandlesNothingUnderUmbrella { .. }));
+    }
+
+    #[test]
+    fn set_exact_force_writes_inherited_only_target() {
+        let e = read_only_engine();
+        let plan = e.set("nvim", Some("image/svg+xml"), None, SetOptions { exact: true, force: true, dry_run: true, ..Default::default() }).unwrap();
+        assert_eq!(plan.set_types, vec!["image/svg+xml"]);
+        assert_eq!(plan.inherited_via.len(), 1);
+    }
+
+    #[test]
+    fn set_exact_declared_target_still_works() {
+        let e = read_only_engine();
+        let plan = e.set("nvim", Some("text/plain"), None, SetOptions { exact: true, dry_run: true, ..Default::default() }).unwrap();
+        assert_eq!(plan.set_types, vec!["text/plain"]);
+        assert!(plan.inherited_via.is_empty());
     }
 }
 
