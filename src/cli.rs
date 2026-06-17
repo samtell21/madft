@@ -110,11 +110,11 @@ fn render_error(e: &Error, json: bool) -> Outcome {
 fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String, Error> {
     let out = match command {
         Command::Ls { path } => {
-            let r = engine.ls(path.as_deref())?;
+            let r = engine.ls(path.as_deref(), false)?;
             if json { to_json(&r) } else { human_ls(&r) }
         }
         Command::Types { path } => {
-            let r = engine.types(path)?;
+            let r = engine.types(path, false)?;
             if json { to_json(&r) } else { r.join("\n") }
         }
         Command::Info { mimetype } => {
@@ -354,9 +354,7 @@ mod tests {
         assert!(out.stdout.contains("Media"));
         assert!(out.stdout.contains("Web"));
         assert!(out.stdout.contains("Other"));
-        // No trailing slash on categories anymore.
         assert!(!out.stdout.contains("Media/"));
-        // Root has only categories -> no section headers.
         assert!(!out.stdout.contains("categories:"));
     }
 
@@ -369,10 +367,11 @@ mod tests {
 
     #[test]
     fn types_human_is_one_per_line() {
+        // Filtered view (cli passes show_all=false): application/ogg (inert) is dropped.
         let out = execute(&engine(), &Command::Types { path: "Media".to_string() }, false);
         assert_eq!(
             out.stdout,
-            "application/ogg\naudio/mpeg\nimage/png\nimage/jpeg\nvideo/mp4\nvideo/x-matroska"
+            "audio/mpeg\nimage/png\nimage/jpeg\nvideo/mp4\nvideo/x-matroska"
         );
     }
 

@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::appindex::AppIndex;
-use crate::categories::{self, CategoryTree, FileSource};
+use crate::categories::{self, CategoryId, CategoryTree, FileSource};
 use crate::defaults::Defaults;
 use crate::error::{Error, Result};
 use crate::mimedb::MimeDb;
@@ -135,6 +135,17 @@ impl Engine {
         }
     }
 
+    /// A type is inert when no installed app declares it (nothing can open it).
+    fn type_is_inert(&self, t: &MimeType) -> bool {
+        self.appindex.apps_for_type(t).is_empty()
+    }
+
+    /// True if any type anywhere under `id` is app-backed (not inert). Used to
+    /// decide whether a category is worth showing in the default (filtered) view.
+    fn subtree_has_app_backed_type(&self, id: CategoryId) -> bool {
+        self.tree.types_under(id).iter().any(|t| !self.type_is_inert(t))
+    }
+
     /// Resolve a `[PATH|mimetype]` target. `None` or `"."` is the root (whole
     /// tree); a target containing '/' is a mimetype (umbrella = just that
     /// canonical type); otherwise it is a category path (umbrella = its
@@ -157,41 +168,47 @@ impl Engine {
         }
     }
 
-    /// `ls [PATH]`: child categories + direct leaf types at a node. With no
-    /// PATH, lists the tree's roots (no direct types at the virtual root).
-    pub fn ls(&self, path: Option<&str>) -> Result<LsResult> {
-        match path {
-            None => Ok(LsResult {
-                path: String::new(),
-                subcategories: self.tree.roots().iter().map(|&id| self.tree.path(id)).collect(),
-                types: Vec::new(),
-            }),
+    /// `ls [PATH]`: child categories + direct leaf types at a node (roots if no
+    /// PATH). With `show_all == false`, inert direct types and fully-inert
+    /// subcategories are hidden (the default presence filter).
+    pub fn ls(&self, path: Option<&str>, show_all: bool) -> Result<LsResult> {
+        let (label, child_ids, direct) = match path {
+            None => (String::new(), self.tree.roots(), Vec::new()),
             Some(p) => {
                 let id = self
                     .tree
                     .node_by_path(p)
                     .ok_or_else(|| Error::UnknownPath(p.to_string()))?;
-                Ok(LsResult {
-                    path: self.tree.path(id),
-                    subcategories: self
-                        .tree
-                        .subcategories(id)
-                        .iter()
-                        .map(|&c| self.tree.path(c))
-                        .collect(),
-                    types: self.tree.types(id).iter().map(|t| self.leaf_type(t)).collect(),
-                })
+                (self.tree.path(id), self.tree.subcategories(id), self.tree.types(id).to_vec())
             }
-        }
+        };
+        let subcategories = child_ids
+            .into_iter()
+            .filter(|&c| show_all || self.subtree_has_app_backed_type(c))
+            .map(|c| self.tree.path(c))
+            .collect();
+        let types = direct
+            .iter()
+            .filter(|t| show_all || !self.type_is_inert(t))
+            .map(|t| self.leaf_type(t))
+            .collect();
+        Ok(LsResult { path: label, subcategories, types })
     }
 
-    /// `types <PATH>`: all mimetypes under the umbrella (recursive, canonicalized).
-    pub fn types(&self, path: &str) -> Result<Vec<String>> {
+    /// `types <PATH>`: all mimetypes under the umbrella (recursive,
+    /// canonicalized). Inert types are dropped unless `show_all`.
+    pub fn types(&self, path: &str, show_all: bool) -> Result<Vec<String>> {
         let id = self
             .tree
             .node_by_path(path)
             .ok_or_else(|| Error::UnknownPath(path.to_string()))?;
-        Ok(self.tree.types_under(id).iter().map(|t| t.to_string()).collect())
+        Ok(self
+            .tree
+            .types_under(id)
+            .into_iter()
+            .filter(|t| show_all || !self.type_is_inert(t))
+            .map(|t| t.to_string())
+            .collect())
     }
 
     /// `info <mimetype>`: canonical name, current default, applicable apps, and
@@ -281,7 +298,7 @@ mod tests {
     #[test]
     fn ls_root_lists_category_roots() {
         let e = engine();
-        let r = e.ls(None).unwrap();
+        let r = e.ls(None, true).unwrap();
         assert_eq!(r.subcategories, vec!["Media", "Other", "Web"]);
         assert!(r.types.is_empty());
     }
@@ -289,7 +306,7 @@ mod tests {
     #[test]
     fn ls_node_lists_subcategories_and_direct_types() {
         let e = engine();
-        let r = e.ls(Some("Media")).unwrap();
+        let r = e.ls(Some("Media"), true).unwrap();
         assert_eq!(r.path, "Media");
         assert_eq!(r.subcategories, vec!["Media.Audio", "Media.Images", "Media.Video"]);
         assert_eq!(r.types.len(), 1);
@@ -301,13 +318,13 @@ mod tests {
     #[test]
     fn ls_unknown_path_errors() {
         let e = engine();
-        assert!(matches!(e.ls(Some("Nope")), Err(Error::UnknownPath(_))));
+        assert!(matches!(e.ls(Some("Nope"), false), Err(Error::UnknownPath(_))));
     }
 
     #[test]
     fn types_under_umbrella_is_recursive() {
         let e = engine();
-        let t = e.types("Media").unwrap();
+        let t = e.types("Media", true).unwrap();
         assert_eq!(
             t,
             vec![
@@ -319,6 +336,36 @@ mod tests {
                 "video/x-matroska",
             ]
         );
+    }
+
+    #[test]
+    fn ls_hides_inert_direct_type_by_default() {
+        let e = engine();
+        // Media's direct type application/ogg has no installed app -> inert.
+        let hidden = e.ls(Some("Media"), false).unwrap();
+        assert!(hidden.types.iter().all(|t| t.mime != "application/ogg"));
+        let shown = e.ls(Some("Media"), true).unwrap();
+        assert!(shown.types.iter().any(|t| t.mime == "application/ogg"));
+    }
+
+    #[test]
+    fn ls_other_hides_inert_types_but_keeps_app_backed() {
+        let e = engine();
+        let r = e.ls(Some("Other"), false).unwrap();
+        let mimes: Vec<&str> = r.types.iter().map(|t| t.mime.as_str()).collect();
+        assert!(mimes.contains(&"text/plain"));
+        assert!(!mimes.contains(&"application/xml"));
+        assert!(!mimes.contains(&"application/octet-stream"));
+    }
+
+    #[test]
+    fn types_drops_inert_unless_show_all() {
+        let e = engine();
+        let filtered = e.types("Media", false).unwrap();
+        assert!(!filtered.contains(&"application/ogg".to_string()));
+        assert!(filtered.contains(&"video/mp4".to_string()));
+        let all = e.types("Media", true).unwrap();
+        assert!(all.contains(&"application/ogg".to_string()));
     }
 
     #[test]
@@ -398,8 +445,8 @@ mod tests {
         };
         let e = Engine::load(&roots, &[]).unwrap();
         // The built-in default tree provides these categories.
-        assert!(e.ls(Some("Media.Video")).is_ok());
-        assert!(e.ls(Some("Images")).is_ok());
+        assert!(e.ls(Some("Media.Video"), false).is_ok());
+        assert!(e.ls(Some("Images"), false).is_ok());
     }
 }
 
