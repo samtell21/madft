@@ -30,7 +30,8 @@ $EDITOR ~/.local/share/madft/categories.toml
 Everyday use:
 
 ```bash
-madft ls                       # top-level categories
+madft ls                       # top-level categories (installed apps only)
+madft ls --all                 # include types with no installed handler (full taxonomy)
 madft ls Media                 # Media.Audio  Media.Video
 madft ls Media.Video           # video/mp4  [default: mpv.desktop, apps: 3]  ...
 madft info video/mp4           # category, default, applicable apps, inherit-if-unset chain
@@ -52,7 +53,7 @@ Add `--json` to any command for machine-readable output.
 
 | Command | What it does |
 |---|---|
-| `ls [PATH]` | Child categories + leaf types at a node (roots if no PATH); each leaf shows its current default + applicable-app count. |
+| `ls [PATH]` | Child categories + leaf types at a node (roots if no PATH); each leaf shows its current default + applicable-app count. Hides app-less types/categories unless --all. |
 | `types <PATH>` | All mimetypes under the umbrella (recursive, alias-canonicalized). |
 | `info <mimetype>` | Canonical name, **category**, current default, applicable apps, and the `ancestor_types` (inherit-if-unset) chain. |
 | `apps [PATH\|mimetype]` | Apps that declare any of the umbrella's types, ranked by coverage. With no target, the whole tree (`.` is an explicit root alias). |
@@ -64,11 +65,14 @@ Add `--json` to any command for machine-readable output.
 
 Exit codes: `0` success, `1` on an operational error (unknown path/app, guard), `2` on a usage error.
 
+Global flags: `--json` (machine output) and `-a`/`--all` (include types/categories with no installed app; off by default) work on every listing command and `set`.
+
 ## How it works
 
 - **Two trees, never conflated.** The **category tree** is your human navigation overlay (`Media.Video`). The **freedesktop subclass DAG** (`text/html → text/plain`, plus aliases like `image/jpg → image/jpeg`) is surfaced read-only as the "what you'd inherit if unset" annotation.
 - **Exact-declaration.** "App X handles type T" means X's `.desktop` file *explicitly* lists T in `MimeType=`. `set` only sets types the app declares (unless you `--force`); inheritance is never a set target.
 - **Total tree.** Every type in your system's MIME database resolves to some node — unplaced types fall to a flat `Other`, so nothing is invisible.
+- **Presence filter.** By default `madft` shows only what your machine can act on — types with at least one installed app, and categories that contain such a type. The built-in tree is deliberately comprehensive (the long tail still lands in `Other`), so pass **`-a`/`--all`** to any listing or `set` to see/act on the full taxonomy. Naming a mimetype explicitly (or via `--types`) always works, filtered or not.
 - **Correct XDG precedence.** `~/.local/share` shadows system dirs (the *correct* direction — not the inverted first-seen behavior some launchers use).
 
 ### Configuration & files
