@@ -816,8 +816,8 @@ pub struct AppTypeRow {
     pub current_default: Option<String>,
 }
 
-/// Result of `app`: an app's declared types, where each lives, and which it is
-/// currently the default for.
+/// Result of `app`: the union of an app's declared types and the types it is
+/// the current default for, where each lives, and which it is the default for.
 #[derive(serde::Serialize, Debug)]
 pub struct AppReport {
     pub id: String,
