@@ -150,6 +150,8 @@ fn golden_app_json() {
     assert_eq!(v["types"][0]["mime"], "video/mp4");
     assert_eq!(v["types"][0]["is_default"], true);
     assert_eq!(v["types"][0]["category"], "Media.Video");
+    // types[0] is video/mp4, which mpv declares.
+    assert_eq!(v["types"][0]["declares"], true);
 }
 
 #[test]
@@ -260,4 +262,39 @@ fn golden_short_a_flag_parses_as_all() {
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     let mimes: Vec<&str> = v["types"].as_array().unwrap().iter().map(|t| t["mime"].as_str().unwrap()).collect();
     assert!(mimes.contains(&"application/ogg"));
+}
+
+#[test]
+fn golden_app_includes_undeclared_default() {
+    let f = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let cfg = std::env::temp_dir().join("madft-golden-app-undeclared");
+    let _ = std::fs::remove_dir_all(&cfg);
+    std::fs::create_dir_all(&cfg).unwrap();
+    // mpv is default for image/png but does not declare it.
+    std::fs::write(
+        cfg.join("mimeapps.list"),
+        "[Default Applications]\nimage/png=mpv.desktop\n",
+    )
+    .unwrap();
+    let roots = Roots {
+        data_home: f.join("engine"),
+        data_dirs: vec![f.clone()],
+        config_home: cfg.clone(),
+        config_dirs: vec![],
+    };
+    let e = Engine::load(&roots, &[]).unwrap();
+    let cli = parse(&["madft", "app", "mpv", "--json"]);
+    let out = execute(&e, &cli.command, cli.json, cli.all);
+    assert_eq!(out.code, 0);
+    let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    let png = v["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["mime"] == "image/png")
+        .unwrap();
+    assert_eq!(png["declares"], false);
+    assert_eq!(png["is_default"], true);
+    assert_eq!(png["current_default"], "mpv.desktop");
+    assert_eq!(v["default_for"], 1);
 }
