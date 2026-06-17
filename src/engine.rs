@@ -912,9 +912,11 @@ mod app_tests {
         assert_eq!(r.default_for, 1);
         assert_eq!(r.types[0].mime, "video/mp4");
         assert!(r.types[0].is_default);
+        assert!(r.types[0].declares);
         assert_eq!(r.types[0].category.as_deref(), Some("Media.Video"));
         let audio = r.types.iter().find(|t| t.mime == "audio/mpeg").unwrap();
         assert!(!audio.is_default);
+        assert!(audio.declares);
         assert_eq!(audio.category.as_deref(), Some("Media.Audio"));
     }
 
