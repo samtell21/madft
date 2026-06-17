@@ -57,7 +57,7 @@ Add `--json` to any command for machine-readable output.
 | `types <PATH>` | All mimetypes under the umbrella (recursive, alias-canonicalized). |
 | `info <mimetype>` | Canonical name, **category**, current default, applicable apps, and the `ancestor_types` (inherit-if-unset) chain. |
 | `apps [PATH\|mimetype]` | Apps that declare any of the umbrella's types, ranked by coverage. With no target, the whole tree (`.` is an explicit root alias). |
-| `app <id>` | One app's declared types, the category each falls in, and which it's currently the default for. |
+| `app <id>` | One app's mimetypes: those it declares **and** those it's the current default for (even undeclared ones, flagged `declares: false` / `(not declared)` and marked `DEFAULT`), plus the category each falls in. |
 | `get <mimetype>` | The bare current default id (empty if unset). Scriptable. |
 | `set <app> [PATH\|mimetype] [--types a,b] [-f/--force] [--no-clobber] [--dry-run]` | Set `app` as default for the umbrella's declared types (whole tree if no target). Reports skipped (undeclared) types — not an error. `--force` overrides the declaration guard; `--no-clobber` (alias `--if-unset`) fills only types with no current default; `--dry-run` previews. |
 | `unset <mimetype>` | Remove the user default for a type. |
@@ -105,6 +105,20 @@ Every command emits a stable, additive JSON schema for scripting and front-ends:
   "no_clobber": true,
   "dry_run": true,
   "written": false
+}
+```
+
+```jsonc
+// madft app nvim --json   (after: madft set nvim text/css --force)
+{
+  "id": "nvim.desktop",
+  "name": "Neovim",
+  "declares": 2,
+  "default_for": 1,
+  "types": [
+    {"mime": "text/css",   "category": "Web",       "declares": false, "is_default": true,  "current_default": "nvim.desktop"},
+    {"mime": "text/plain", "category": "Documents", "declares": true,  "is_default": false, "current_default": null}
+  ]
 }
 ```
 
