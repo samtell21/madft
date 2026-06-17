@@ -401,6 +401,36 @@ mod tests {
     }
 
     #[test]
+    fn ls_root_hides_fully_inert_top_level_category() {
+        // A top-level category whose entire subtree is inert is hidden from the
+        // root `ls` by default, and shown with show_all. (The fixture's own roots
+        // are all app-backed, so this builds a temp tree to exercise the case.)
+        let f = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let tmp = std::env::temp_dir().join("madft-engine-inert-root");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("madft")).unwrap();
+        // application/pdf + application/octet-stream are inert; audio/mpeg is app-backed.
+        std::fs::write(
+            tmp.join("madft/categories.toml"),
+            "[\"Ghost\"]\ntypes = [\"application/pdf\", \"application/octet-stream\"]\n\n\
+             [\"Live\"]\ntypes = [\"audio/mpeg\"]\n",
+        )
+        .unwrap();
+        let roots = Roots {
+            data_home: tmp.clone(),
+            data_dirs: vec![f.clone()],
+            config_home: tmp.clone(),
+            config_dirs: vec![],
+        };
+        let e = Engine::load(&roots, &[]).unwrap();
+        let filtered = e.ls(None, false).unwrap();
+        assert!(filtered.subcategories.contains(&"Live".to_string()));
+        assert!(!filtered.subcategories.contains(&"Ghost".to_string()));
+        let all = e.ls(None, true).unwrap();
+        assert!(all.subcategories.contains(&"Ghost".to_string()));
+    }
+
+    #[test]
     fn info_canonicalizes_alias() {
         let e = engine();
         let info = e.info("image/jpg").unwrap();
