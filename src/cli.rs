@@ -5,7 +5,7 @@
 
 use clap::{Parser, Subcommand};
 
-use crate::engine::{AppReport, AppsResult, Engine, LsResult, SetPlan, TypeInfo};
+use crate::engine::{AppReport, AppsResult, Engine, LsResult, SetOptions, SetPlan, TypeInfo};
 use crate::error::Error;
 use crate::paths::Roots;
 
@@ -122,7 +122,7 @@ fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String,
             if json { to_json(&r) } else { human_info(&r) }
         }
         Command::Apps { target } => {
-            let r = engine.apps(target.as_deref())?;
+            let r = engine.apps(target.as_deref(), false)?;
             if json { to_json(&r) } else { human_apps(&r) }
         }
         Command::App { id } => {
@@ -131,7 +131,8 @@ fn run_command(engine: &Engine, command: &Command, json: bool) -> Result<String,
         }
         Command::Set { app, target, types, force, no_clobber, dry_run } => {
             let filter = if types.is_empty() { None } else { Some(types.as_slice()) };
-            let r = engine.set(app, target.as_deref(), filter, *force, *no_clobber, *dry_run)?;
+            let opts = SetOptions { force: *force, no_clobber: *no_clobber, show_all: false, dry_run: *dry_run };
+            let r = engine.set(app, target.as_deref(), filter, opts)?;
             if json { to_json(&r) } else { human_set(&r) }
         }
         Command::Unset { mimetype } => {
@@ -421,7 +422,7 @@ mod tests {
         assert_eq!(out.code, 0);
         let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
         assert_eq!(v["set_types"], serde_json::json!(["audio/mpeg", "video/mp4", "video/x-matroska"]));
-        assert_eq!(v["skipped_types"], serde_json::json!(["application/ogg", "image/png", "image/jpeg"]));
+        assert_eq!(v["skipped_types"], serde_json::json!(["image/png", "image/jpeg"]));
         assert_eq!(v["unchanged_types"], serde_json::json!([]));
         assert_eq!(v["no_clobber"], serde_json::json!(false));
         assert_eq!(v["written"], serde_json::json!(false));

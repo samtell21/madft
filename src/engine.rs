@@ -88,6 +88,18 @@ pub struct SetPlan {
     pub written: bool,
 }
 
+/// Flags for `set`, bundled to keep the signature readable. `show_all` disables
+/// the presence filter on a category/root umbrella; `force` overrides the
+/// exact-declaration guard; `no_clobber` fills only types with no current
+/// default; `dry_run` previews without writing.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SetOptions {
+    pub force: bool,
+    pub no_clobber: bool,
+    pub show_all: bool,
+    pub dry_run: bool,
+}
+
 pub struct Engine {
     roots: Roots,
     mimedb: MimeDb,
@@ -144,6 +156,25 @@ impl Engine {
     /// decide whether a category is worth showing in the default (filtered) view.
     fn subtree_has_app_backed_type(&self, id: CategoryId) -> bool {
         self.tree.types_under(id).iter().any(|t| !self.type_is_inert(t))
+    }
+
+    /// Apply the presence filter to a resolved umbrella. Inert types are dropped
+    /// UNLESS `show_all`, the target is an explicit mimetype (contains '/'), or
+    /// `explicit_types` is set (a `--types` list named exact types). Explicit
+    /// selections always win.
+    fn filter_umbrella(
+        &self,
+        target: Option<&str>,
+        umbrella: Vec<MimeType>,
+        show_all: bool,
+        explicit_types: bool,
+    ) -> Vec<MimeType> {
+        let explicit_target = target.is_some_and(|t| t.contains('/'));
+        if show_all || explicit_target || explicit_types {
+            umbrella
+        } else {
+            umbrella.into_iter().filter(|t| !self.type_is_inert(t)).collect()
+        }
     }
 
     /// Resolve a `[PATH|mimetype]` target. `None` or `"."` is the root (whole
@@ -240,8 +271,9 @@ impl Engine {
 
     /// `apps <PATH|mimetype>`: apps declaring any of the umbrella's types, with
     /// their coverage, sorted by coverage (desc) then id (asc).
-    pub fn apps(&self, target: Option<&str>) -> Result<AppsResult> {
-        let (label, umbrella) = self.resolve_umbrella(target)?;
+    pub fn apps(&self, target: Option<&str>, show_all: bool) -> Result<AppsResult> {
+        let (label, raw) = self.resolve_umbrella(target)?;
+        let umbrella = self.filter_umbrella(target, raw, show_all, false);
         // app id -> the umbrella types it declares (in umbrella order).
         let mut by_app: BTreeMap<DesktopId, Vec<MimeType>> = BTreeMap::new();
         for t in &umbrella {
@@ -390,7 +422,7 @@ mod tests {
     #[test]
     fn apps_sorted_by_coverage() {
         let e = engine();
-        let r = e.apps(Some("Media")).unwrap();
+        let r = e.apps(Some("Media"), true).unwrap();
         let ids: Vec<&str> = r.apps.iter().map(|a| a.id.as_str()).collect();
         assert_eq!(ids, vec!["mpv.desktop", "eog.desktop", "webcam.desktop"]);
         assert_eq!(r.apps[0].coverage, 3);
@@ -401,7 +433,7 @@ mod tests {
     #[test]
     fn apps_for_a_mimetype_target() {
         let e = engine();
-        let r = e.apps(Some("video/mp4")).unwrap();
+        let r = e.apps(Some("video/mp4"), false).unwrap();
         assert_eq!(r.target, "video/mp4");
         assert_eq!(r.types, vec!["video/mp4"]);
         let ids: Vec<&str> = r.apps.iter().map(|a| a.id.as_str()).collect();
@@ -411,10 +443,10 @@ mod tests {
     #[test]
     fn apps_root_target_covers_whole_tree() {
         let e = engine();
-        let none = e.apps(None).unwrap();
+        let none = e.apps(None, true).unwrap();
         assert_eq!(none.target, "(root)");
         // `.` is an explicit alias for the same root umbrella.
-        let dot = e.apps(Some(".")).unwrap();
+        let dot = e.apps(Some("."), true).unwrap();
         assert_eq!(dot.target, "(root)");
         assert_eq!(none.types, dot.types);
         // Root umbrella is every placed type (Media subtree + Other + Web).
@@ -422,6 +454,23 @@ mod tests {
         assert!(none.types.contains(&"text/html".to_string()));
         // mpv still leads coverage somewhere in the ranking.
         assert!(none.apps.iter().any(|a| a.id == "mpv.desktop"));
+    }
+
+    #[test]
+    fn apps_category_target_filters_inert_types() {
+        let e = engine();
+        let r = e.apps(Some("Media"), false).unwrap();
+        assert!(!r.types.contains(&"application/ogg".to_string()));
+        let all = e.apps(Some("Media"), true).unwrap();
+        assert!(all.types.contains(&"application/ogg".to_string()));
+    }
+
+    #[test]
+    fn apps_explicit_mimetype_target_is_never_filtered() {
+        let e = engine();
+        let r = e.apps(Some("application/pdf"), false).unwrap();
+        assert_eq!(r.target, "application/pdf");
+        assert_eq!(r.types, vec!["application/pdf"]);
     }
 
     #[test]
@@ -469,11 +518,10 @@ impl Engine {
         app: &str,
         target: Option<&str>,
         types_filter: Option<&[String]>,
-        force: bool,
-        no_clobber: bool,
-        dry_run: bool,
+        opts: SetOptions,
     ) -> Result<SetPlan> {
-        let (label, umbrella) = self.resolve_umbrella(target)?;
+        let (label, raw) = self.resolve_umbrella(target)?;
+        let umbrella = self.filter_umbrella(target, raw, opts.show_all, types_filter.is_some());
         let app_id = DesktopId::new(app);
         if self.appindex.app(&app_id).is_none() {
             return Err(Error::UnknownApp(app_id.to_string()));
@@ -484,23 +532,19 @@ impl Engine {
                 .collect()
         });
 
-        // Candidates = filtered umbrella types the app declares (or --force'd).
-        // Types outside the --types filter are ignored entirely. Written without
-        // a `let`-chain to keep the MSRV at Rust 1.85; let-chains need 1.88.
         let mut candidates: Vec<MimeType> = Vec::new();
         let mut skipped: Vec<MimeType> = Vec::new();
         for t in &umbrella {
             if filter.as_ref().is_some_and(|f| !f.contains(t)) {
                 continue;
             }
-            if force || self.appindex.declares(&app_id, t) {
+            if opts.force || self.appindex.declares(&app_id, t) {
                 candidates.push(t.clone());
             } else {
                 skipped.push(t.clone());
             }
         }
 
-        // Empty-candidate guard: BEFORE the no-clobber split (see doc comment).
         if candidates.is_empty() {
             return Err(Error::AppHandlesNothingUnderUmbrella {
                 app: app_id.to_string(),
@@ -508,9 +552,7 @@ impl Engine {
             });
         }
 
-        // No-clobber keeps candidates that already have any current default
-        // (partition preserves umbrella order within each group).
-        let (set_types, unchanged): (Vec<MimeType>, Vec<MimeType>) = if no_clobber {
+        let (set_types, unchanged): (Vec<MimeType>, Vec<MimeType>) = if opts.no_clobber {
             candidates
                 .into_iter()
                 .partition(|t| self.defaults.current_default(t).is_none())
@@ -522,7 +564,7 @@ impl Engine {
             .iter()
             .map(|t| crate::writer::Edit::Set(t.clone(), app_id.clone()))
             .collect();
-        let written = if dry_run || edits.is_empty() {
+        let written = if opts.dry_run || edits.is_empty() {
             false
         } else {
             crate::writer::write_user_defaults(&self.roots.user_mimeapps(), &edits)?
@@ -534,9 +576,9 @@ impl Engine {
             set_types: set_types.iter().map(|t| t.to_string()).collect(),
             skipped_types: skipped.iter().map(|t| t.to_string()).collect(),
             unchanged_types: unchanged.iter().map(|t| t.to_string()).collect(),
-            forced: force,
-            no_clobber,
-            dry_run,
+            forced: opts.force,
+            no_clobber: opts.no_clobber,
+            dry_run: opts.dry_run,
             written,
         })
     }
@@ -592,7 +634,7 @@ mod write_tests {
     #[test]
     fn set_dry_run_partitions_without_writing() {
         let e = read_only_engine();
-        let plan = e.set("mpv", Some("Media"), None, false, false, true).unwrap();
+        let plan = e.set("mpv", Some("Media"), None, SetOptions { show_all: true, dry_run: true, ..Default::default() }).unwrap();
         assert_eq!(plan.set_types, vec!["audio/mpeg", "video/mp4", "video/x-matroska"]);
         assert_eq!(plan.skipped_types, vec!["application/ogg", "image/png", "image/jpeg"]);
         assert!(plan.unchanged_types.is_empty());
@@ -605,30 +647,28 @@ mod write_tests {
     #[test]
     fn set_guards_when_app_handles_nothing() {
         let e = read_only_engine();
-        let err = e.set("nvim", Some("Media"), None, false, false, false).unwrap_err();
+        let err = e.set("nvim", Some("Media"), None, SetOptions { show_all: true, ..Default::default() }).unwrap_err();
         assert!(matches!(err, Error::AppHandlesNothingUnderUmbrella { .. }));
     }
 
     #[test]
     fn set_unknown_app_errors() {
         let e = read_only_engine();
-        assert!(matches!(e.set("nope", Some("Media"), None, false, false, false), Err(Error::UnknownApp(_))));
+        assert!(matches!(e.set("nope", Some("Media"), None, SetOptions { show_all: true, ..Default::default() }), Err(Error::UnknownApp(_))));
     }
 
     #[test]
     fn set_writes_backs_up_and_is_idempotent() {
         let (e, path) = engine_with_temp_config("set");
-        let plan = e.set("mpv", Some("Media"), None, false, false, false).unwrap();
+        let plan = e.set("mpv", Some("Media"), None, SetOptions::default()).unwrap();
         assert!(plan.written);
-
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("audio/mpeg=mpv.desktop"));
         assert!(content.contains("video/x-matroska=mpv.desktop"));
         assert!(content.contains("video/mp4=mpv.desktop"));
         assert!(content.contains("text/html=org.qutebrowser.qutebrowser.desktop"));
         assert!(path.with_file_name("mimeapps.list.bak").exists());
-
-        let again = e.set("mpv", Some("Media"), None, false, false, false).unwrap();
+        let again = e.set("mpv", Some("Media"), None, SetOptions::default()).unwrap();
         assert!(!again.written);
     }
 
@@ -636,7 +676,7 @@ mod write_tests {
     fn set_with_types_filter_restricts() {
         let (e, _path) = engine_with_temp_config("filter");
         let only = ["video/mp4".to_string()];
-        let plan = e.set("mpv", Some("Media"), Some(&only), false, false, true).unwrap();
+        let plan = e.set("mpv", Some("Media"), Some(&only), SetOptions { dry_run: true, ..Default::default() }).unwrap();
         assert_eq!(plan.set_types, vec!["video/mp4"]);
         assert!(plan.skipped_types.is_empty());
     }
@@ -644,8 +684,7 @@ mod write_tests {
     #[test]
     fn set_force_sets_undeclared_type() {
         let e = read_only_engine();
-        // mpv does NOT declare image/png; --force sets it anyway (dry-run).
-        let plan = e.set("mpv", Some("image/png"), None, true, false, true).unwrap();
+        let plan = e.set("mpv", Some("image/png"), None, SetOptions { force: true, dry_run: true, ..Default::default() }).unwrap();
         assert_eq!(plan.set_types, vec!["image/png"]);
         assert!(plan.skipped_types.is_empty());
         assert!(plan.forced);
@@ -655,17 +694,15 @@ mod write_tests {
     fn set_force_still_errors_on_unknown_app() {
         let e = read_only_engine();
         assert!(matches!(
-            e.set("nope", Some("image/png"), None, true, false, false),
+            e.set("nope", Some("image/png"), None, SetOptions { force: true, ..Default::default() }),
             Err(Error::UnknownApp(_))
         ));
     }
 
     #[test]
     fn set_no_clobber_only_fills_unset_declared_types() {
-        // mpv declares audio/mpeg, video/mp4, video/x-matroska. In the fixture
-        // video/mp4 is already mpv; the other two are unset.
         let e = read_only_engine();
-        let plan = e.set("mpv", Some("Media"), None, false, true, true).unwrap();
+        let plan = e.set("mpv", Some("Media"), None, SetOptions { no_clobber: true, dry_run: true, ..Default::default() }).unwrap();
         assert_eq!(plan.set_types, vec!["audio/mpeg", "video/x-matroska"]);
         assert_eq!(plan.unchanged_types, vec!["video/mp4"]);
         assert!(plan.no_clobber);
@@ -673,11 +710,9 @@ mod write_tests {
 
     #[test]
     fn set_no_clobber_all_already_set_is_success_not_error() {
-        // Restrict to video/mp4 (already mpv) under --no-clobber: nothing to do,
-        // but a declared candidate existed, so this is success, not the guard.
         let e = read_only_engine();
         let only = ["video/mp4".to_string()];
-        let plan = e.set("mpv", Some("Media"), Some(&only), false, true, true).unwrap();
+        let plan = e.set("mpv", Some("Media"), Some(&only), SetOptions { no_clobber: true, dry_run: true, ..Default::default() }).unwrap();
         assert!(plan.set_types.is_empty());
         assert_eq!(plan.unchanged_types, vec!["video/mp4"]);
         assert!(!plan.written);
@@ -685,19 +720,48 @@ mod write_tests {
 
     #[test]
     fn set_no_clobber_still_guards_when_app_declares_nothing() {
-        // nvim declares nothing under Media: guard fires regardless of the flag.
         let e = read_only_engine();
-        let err = e.set("nvim", Some("Media"), None, false, true, false).unwrap_err();
+        let err = e.set("nvim", Some("Media"), None, SetOptions { no_clobber: true, ..Default::default() }).unwrap_err();
         assert!(matches!(err, Error::AppHandlesNothingUnderUmbrella { .. }));
     }
 
     #[test]
     fn set_root_target_labels_root() {
         let e = read_only_engine();
-        let plan = e.set("mpv", None, None, false, false, true).unwrap();
+        let plan = e.set("mpv", None, None, SetOptions { show_all: true, dry_run: true, ..Default::default() }).unwrap();
         assert_eq!(plan.target, "(root)");
-        // Over the whole tree, mpv still only sets the 3 types it declares.
         assert_eq!(plan.set_types, vec!["audio/mpeg", "video/mp4", "video/x-matroska"]);
+    }
+
+    #[test]
+    fn set_category_umbrella_excludes_inert_by_default() {
+        let e = read_only_engine();
+        let plan = e.set("mpv", Some("Media"), None, SetOptions { dry_run: true, ..Default::default() }).unwrap();
+        assert_eq!(plan.set_types, vec!["audio/mpeg", "video/mp4", "video/x-matroska"]);
+        assert_eq!(plan.skipped_types, vec!["image/png", "image/jpeg"]);
+        assert!(!plan.skipped_types.contains(&"application/ogg".to_string()));
+    }
+
+    #[test]
+    fn set_show_all_restores_inert_into_umbrella() {
+        let e = read_only_engine();
+        let plan = e.set("mpv", Some("Media"), None, SetOptions { show_all: true, dry_run: true, ..Default::default() }).unwrap();
+        assert!(plan.skipped_types.contains(&"application/ogg".to_string()));
+    }
+
+    #[test]
+    fn set_explicit_mimetype_target_bypasses_filter() {
+        let e = read_only_engine();
+        let plan = e.set("mpv", Some("application/pdf"), None, SetOptions { force: true, dry_run: true, ..Default::default() }).unwrap();
+        assert_eq!(plan.set_types, vec!["application/pdf"]);
+    }
+
+    #[test]
+    fn set_types_list_bypasses_filter() {
+        let e = read_only_engine();
+        let only = ["application/ogg".to_string()];
+        let plan = e.set("mpv", Some("Media"), Some(&only), SetOptions { force: true, dry_run: true, ..Default::default() }).unwrap();
+        assert_eq!(plan.set_types, vec!["application/ogg"]);
     }
 
     #[test]
