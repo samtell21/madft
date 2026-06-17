@@ -55,11 +55,11 @@ Add `--json` to any command for machine-readable output.
 |---|---|
 | `ls [PATH]` | Child categories + leaf types at a node (roots if no PATH); each leaf shows its current default + applicable-app count. Hides app-less types/categories unless --all. |
 | `types <PATH>` | All mimetypes under the umbrella (recursive, alias-canonicalized). |
-| `info <mimetype>` | Canonical name, **category**, current default, applicable apps, and the `ancestor_types` (inherit-if-unset) chain. |
+| `info <mimetype>` | Canonical name, **category**, **effective default** (`{app, via}` — `via` set when inherited from a parent type), apps that declare it, apps that could open it via inheritance, and the `inherits if unset` chain. |
 | `apps [PATH\|mimetype]` | Apps that declare any of the umbrella's types, ranked by coverage. With no target, the whole tree (`.` is an explicit root alias). |
 | `app <id>` | One app's mimetypes: those it declares **and** those it's the current default for (even undeclared ones, flagged `declares: false` / `(not declared)` and marked `DEFAULT`), plus the category each falls in. |
 | `get <mimetype>` | The bare current default id (empty if unset). Scriptable. |
-| `set <app> [PATH\|mimetype] [--types a,b] [-f/--force] [--no-clobber] [--dry-run]` | Set `app` as default for the umbrella's declared types (whole tree if no target). Reports skipped (undeclared) types — not an error. `--force` overrides the declaration guard; `--no-clobber` (alias `--if-unset`) fills only types with no current default; `--dry-run` previews. |
+| `set <app> [PATH\|mimetype] [--types a,b] [-f/--force] [--no-clobber] [--exact] [--dry-run]` | Set `app` as default for the umbrella's types it handles — declared **or** reachable via a parent type. `--exact` restricts to literally-declared types; `--force` overrides entirely; `--no-clobber` fills only unset; `--dry-run` previews. |
 | `unset <mimetype>` | Remove the user default for a type. |
 | `init [-f/--force]` | Write the built-in default category tree to `~/.local/share/madft/categories.toml` for editing (no-op if it exists, unless `--force`). |
 
@@ -73,6 +73,7 @@ Global flags: `--json` (machine output) and `-a`/`--all` (include types/categori
 - **Exact-declaration.** "App X handles type T" means X's `.desktop` file *explicitly* lists T in `MimeType=`. `set` only sets types the app declares (unless you `--force`); inheritance is never a set target.
 - **Total tree.** Every type in your system's MIME database resolves to some node — unplaced types fall to a flat `Other`, so nothing is invisible.
 - **Presence filter.** By default `madft` shows only what your machine can act on — types with at least one installed app, and categories that contain such a type. The built-in tree is deliberately comprehensive (the long tail still lands in `Other`), so pass **`-a`/`--all`** to any listing or `set` to see/act on the full taxonomy. Naming a mimetype explicitly (or via `--types`) always works, filtered or not.
+- **Subclass inheritance is real.** A type you can open *via an ancestor* (your editor handles `text/plain`, so it opens `text/x-python`) counts as openable — it shows in `ls`, gets an **effective default** in `info` (`default: nvim.desktop (via text/plain)`), and `set` will set your app for it without `--force`. Pass **`--exact`** to `set` to restrict to types the app declares literally (leaving inherited-only types blank, still inheriting).
 - **Correct XDG precedence.** `~/.local/share` shadows system dirs (the *correct* direction — not the inverted first-seen behavior some launchers use).
 
 ### Configuration & files
@@ -119,6 +120,21 @@ Every command emits a stable, additive JSON schema for scripting and front-ends:
     {"mime": "text/css",   "category": "Web",       "declares": false, "is_default": true,  "current_default": "nvim.desktop"},
     {"mime": "text/plain", "category": "Documents", "declares": true,  "is_default": false, "current_default": null}
   ]
+}
+```
+
+```jsonc
+// madft info application/xml --json   (with text/plain set to nvim)
+{
+  "mime": "application/xml",
+  "category": "Other",
+  "comment": null,
+  "default": {"app": "nvim.desktop", "via": "text/plain"},
+  "applicable_count": 0,
+  "inheritable_count": 1,
+  "ancestor_types": ["text/plain"],
+  "applicable_apps": [],
+  "inheritable_apps": [{"id": "nvim.desktop", "name": "Neovim", "via": "text/plain"}]
 }
 ```
 
