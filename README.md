@@ -18,7 +18,7 @@ cargo install --path .          # installs `madft` to ~/.cargo/bin
 
 ## Quick start
 
-`madft` works out of the box with a **built-in default category tree**, so `ls` shows sensible groups (Media, Images, Documents, Web, Archives…) immediately — no setup. Anything not placed in the tree falls into a flat `Other` node, so nothing is ever hidden.
+`madft` works out of the box with a **built-in default category tree**, so `ls` shows sensible groups (Media, Images, Documents, Web, Archives…) immediately — no setup. Anything not placed in the tree still has a home — it falls into a flat `Other` node — and `-a`/`--all` reveals everything, including types with no installed app (hidden by default; see Presence filter below).
 
 To customize, drop an editable copy of the default on disk and edit it (`overrides.toml` is also merged on top, if present):
 
