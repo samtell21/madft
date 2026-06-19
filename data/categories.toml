@@ -116,3 +116,6 @@ types = ["application/vnd.sqlite3", "application/x-sqlite2", "application/geopac
 
 ["Software"]
 types = ["application/x-iso9660-appimage", "application/vnd.flatpak.ref", "application/vnd.flatpak.repo", "application/wasm"]
+
+["Personal"]
+types = ["text/calendar", "text/vcard", "text/x-vcalendar", "text/x-vcard"]
