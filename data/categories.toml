@@ -113,3 +113,6 @@ types = ["model/stl", "model/obj", "model/mtl", "model/gltf+json", "model/gltf-b
 
 ["Data"]
 types = ["application/vnd.sqlite3", "application/x-sqlite2", "application/geopackage+sqlite3", "application/x-kexiproject-sqlite2", "application/x-kexiproject-sqlite3", "application/geo+json", "application/ld+json", "application/schema+json", "application/json-patch+json", "application/raml+yaml"]
+
+["Software"]
+types = ["application/x-iso9660-appimage", "application/vnd.flatpak.ref", "application/vnd.flatpak.repo", "application/wasm"]
