@@ -110,3 +110,6 @@ types = ["font/ttf", "font/otf", "font/woff", "font/woff2", "font/collection", "
 
 ["Models"]
 types = ["model/stl", "model/obj", "model/mtl", "model/gltf+json", "model/gltf-binary", "model/3mf", "model/vrml", "model/iges", "model/x3d+xml", "model/x3d+vrml", "model/vnd.collada+xml", "model/x-autodesk-ipt", "model/x-autodesk-max", "model/e57"]
+
+["Data"]
+types = ["application/vnd.sqlite3", "application/x-sqlite3", "application/x-sqlite2", "application/geopackage+sqlite3", "application/x-kexiproject-sqlite2", "application/x-kexiproject-sqlite3", "application/geo+json", "application/ld+json", "application/schema+json", "application/json-patch+json", "application/raml+yaml"]
