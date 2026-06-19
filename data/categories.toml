@@ -107,3 +107,6 @@ types = ["application/x-cd-image", "application/x-apple-diskimage", "application
 
 ["Fonts"]
 types = ["font/ttf", "font/otf", "font/woff", "font/woff2", "font/collection", "font/sfnt", "application/vnd.ms-fontobject", "application/x-font-bdf", "application/x-font-linux-psf", "application/x-font-sfn", "application/x-font-speedo", "application/x-font-ttx", "application/x-font-type1", "application/x-font-pcf"]
+
+["Models"]
+types = ["model/stl", "model/obj", "model/mtl", "model/gltf+json", "model/gltf-binary", "model/3mf", "model/vrml", "model/iges", "model/x3d+xml", "model/x3d+vrml", "model/vnd.collada+xml", "model/x-autodesk-ipt", "model/x-autodesk-max", "model/e57"]
