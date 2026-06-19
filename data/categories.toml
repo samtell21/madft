@@ -4,37 +4,37 @@
 # hides types/categories with no installed app; pass --all to see everything.
 
 ["Media.Video"]
-types = ["video/mp4", "video/x-matroska", "video/webm", "video/quicktime", "video/mpeg", "video/x-msvideo", "video/x-flv", "video/x-ms-wmv", "video/3gpp", "video/ogg", "video/mp2t", "video/x-m4v", "video/dv"]
+types = ["video/mp4", "video/x-matroska", "video/webm", "video/quicktime", "video/mpeg", "video/x-msvideo", "video/x-flv", "video/x-ms-wmv", "video/3gpp", "video/ogg", "video/mp2t", "video/x-m4v", "video/dv", "video/3gpp2", "video/mj2", "video/annodex", "video/isivideo", "video/wavelet", "video/vnd.mpegurl", "video/vnd.rn-realvideo", "video/vnd.radgamettools.bink", "video/vnd.radgamettools.smacker", "video/vnd.vivo", "video/vnd.youtube.yt", "video/x-anim", "video/x-flic", "video/x-javafx", "video/x-matroska-3d", "video/x-mjpeg", "video/x-mng", "video/x-nsv", "video/x-ogm+ogg", "video/x-sgi-movie", "video/x-theora+ogg"]
 
 ["Media.Audio"]
-types = ["audio/mpeg", "audio/flac", "audio/ogg", "audio/x-vorbis+ogg", "audio/x-wav", "audio/aac", "audio/opus", "audio/x-m4a", "audio/mp4", "audio/x-aiff", "audio/x-ape", "audio/x-musepack", "audio/x-wavpack", "audio/midi", "audio/webm"]
+types = ["audio/mpeg", "audio/flac", "audio/ogg", "audio/x-vorbis+ogg", "audio/x-wav", "audio/aac", "audio/opus", "audio/x-m4a", "audio/mp4", "audio/x-aiff", "audio/x-ape", "audio/x-musepack", "audio/x-wavpack", "audio/midi", "audio/webm", "audio/ac3", "audio/AMR", "audio/AMR-WB", "audio/annodex", "audio/basic", "audio/mobile-xmf", "audio/mp2", "audio/prs.sid", "audio/usac", "audio/vnd.audible.aax", "audio/vnd.audible.aaxc", "audio/vnd.dts", "audio/vnd.dts.hd", "audio/vnd.rn-realaudio", "audio/x-aifc", "audio/x-dff", "audio/x-dsf", "audio/x-flac+ogg", "audio/x-gsm", "audio/x-it", "audio/x-m4b", "audio/x-m4r", "audio/x-matroska", "audio/x-minipsf", "audio/x-mo3", "audio/x-mod", "audio/x-ms-wma", "audio/x-opus+ogg", "audio/x-pn-audibleaudio", "audio/x-psf", "audio/x-psflib", "audio/x-s3m", "audio/x-speex", "audio/x-speex+ogg", "audio/x-stm", "audio/x-tak", "audio/x-tta", "audio/x-voc", "audio/x-xm", "audio/x-xmf", "audio/x-xi"]
 
 ["Media.Playlists"]
 types = ["audio/x-mpegurl", "application/vnd.apple.mpegurl", "audio/x-scpls", "application/xspf+xml", "audio/x-ms-asx"]
 
 ["Images"]
-types = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/tiff", "image/bmp", "image/x-icon", "image/heif", "image/heic", "image/avif", "image/jxl", "image/x-xpixmap", "image/x-portable-pixmap", "image/x-tga", "image/x-pcx", "image/x-xcf"]
+types = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/tiff", "image/bmp", "image/x-icon", "image/heif", "image/heic", "image/avif", "image/jxl", "image/x-xpixmap", "image/x-portable-pixmap", "image/x-tga", "image/x-pcx", "image/x-xcf", "image/apng", "image/astc", "image/dpx", "image/emf", "image/jpm", "image/jp2", "image/jpx", "image/jxr", "image/ktx", "image/ktx2", "image/openraster", "image/qoi", "image/rle", "image/vnd.adobe.photoshop", "image/vnd.djvu+multipage", "image/wmf", "image/x-compressed-xcf", "image/x-cmu-raster", "image/x-dds", "image/x-exr", "image/x-gimp-gbr", "image/x-gimp-gih", "image/x-gimp-pat", "image/x-icns", "image/x-ilbm", "image/x-jng", "image/x-macpaint", "image/x-pict", "image/x-portable-anymap", "image/x-portable-bitmap", "image/x-portable-graymap", "image/x-rgb", "image/x-sgi", "image/x-sun-raster", "image/x-tiff-multipage", "image/x-xcursor"]
 
 ["Images.Vector"]
-types = ["image/svg+xml", "image/svg+xml-compressed", "image/x-eps"]
+types = ["image/svg+xml", "image/svg+xml-compressed", "image/x-eps", "image/cgm", "image/vnd.dwg", "image/vnd.dxf", "image/x-bzeps", "image/x-gzeps", "image/x-skencil", "image/x-xfig"]
 
 ["Images.Raw"]
-types = ["image/x-canon-cr2", "image/x-canon-crw", "image/x-nikon-nef", "image/x-sony-arw", "image/x-adobe-dng", "image/x-fuji-raf", "image/x-panasonic-rw2", "image/x-olympus-orf", "image/x-pentax-pef"]
+types = ["image/x-canon-cr2", "image/x-canon-crw", "image/x-nikon-nef", "image/x-sony-arw", "image/x-adobe-dng", "image/x-fuji-raf", "image/x-panasonic-rw2", "image/x-olympus-orf", "image/x-pentax-pef", "image/x-canon-cr3", "image/x-sigma-x3f", "image/x-minolta-mrw", "image/x-kodak-dcr", "image/x-kodak-k25", "image/x-kodak-kdc", "image/x-nikon-nrw", "image/x-panasonic-rw", "image/x-sony-sr2", "image/x-sony-srf"]
 
 ["Documents"]
-types = ["application/pdf", "application/postscript", "image/vnd.djvu", "application/x-dvi", "application/oxps", "application/vnd.ms-xpsdocument"]
+types = ["application/pdf", "application/postscript", "image/vnd.djvu", "application/x-dvi", "application/oxps", "application/vnd.ms-xpsdocument", "application/x-bzpdf", "application/x-gzpdf", "application/x-lzpdf", "application/x-xzpdf", "application/x-bzpostscript", "application/x-gzpostscript", "application/vnd.oasis.opendocument.chart", "application/vnd.oasis.opendocument.chart-template", "application/vnd.oasis.opendocument.formula", "application/vnd.oasis.opendocument.formula-template", "application/vnd.oasis.opendocument.graphics", "application/vnd.oasis.opendocument.graphics-template", "application/vnd.oasis.opendocument.graphics-flat-xml", "application/vnd.oasis.opendocument.image", "application/vnd.oasis.opendocument.database"]
 
 ["Documents.Ebooks"]
-types = ["application/epub+zip", "application/x-mobipocket-ebook", "application/vnd.amazon.ebook", "application/x-fictionbook+xml", "application/vnd.comicbook+zip", "application/vnd.comicbook-rar"]
+types = ["application/epub+zip", "application/x-mobipocket-ebook", "application/vnd.amazon.ebook", "application/x-fictionbook+xml", "application/vnd.comicbook+zip", "application/vnd.comicbook-rar", "application/vnd.amazon.mobi8-ebook", "application/vnd.comicbook+tar"]
 
 ["Documents.Office.Wordprocessor"]
-types = ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.oasis.opendocument.text", "application/rtf", "application/x-abiword", "application/vnd.wordperfect"]
+types = ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.oasis.opendocument.text", "application/rtf", "application/x-abiword", "application/vnd.wordperfect", "application/msword-template", "application/vnd.openxmlformats-officedocument.wordprocessingml.template", "application/vnd.oasis.opendocument.text-template", "application/vnd.oasis.opendocument.text-master", "application/vnd.oasis.opendocument.text-master-template", "application/vnd.oasis.opendocument.text-flat-xml", "application/vnd.oasis.opendocument.text-web"]
 
 ["Documents.Office.Spreadsheet"]
-types = ["application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.oasis.opendocument.spreadsheet", "text/csv", "text/tab-separated-values", "application/x-gnumeric"]
+types = ["application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.oasis.opendocument.spreadsheet", "text/csv", "text/tab-separated-values", "application/x-gnumeric", "application/vnd.ms-excel.sheet.macroEnabled.12", "application/vnd.ms-excel.template.macroEnabled.12", "application/vnd.ms-excel.sheet.binary.macroEnabled.12", "application/vnd.openxmlformats-officedocument.spreadsheetml.template", "application/vnd.oasis.opendocument.spreadsheet-template", "application/vnd.oasis.opendocument.spreadsheet-flat-xml"]
 
 ["Documents.Office.Presentation"]
-types = ["application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/vnd.oasis.opendocument.presentation"]
+types = ["application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/vnd.oasis.opendocument.presentation", "application/vnd.ms-powerpoint.presentation.macroEnabled.12", "application/vnd.ms-powerpoint.template.macroEnabled.12", "application/vnd.ms-powerpoint.slide.macroEnabled.12", "application/vnd.openxmlformats-officedocument.presentationml.slideshow", "application/vnd.openxmlformats-officedocument.presentationml.template", "application/vnd.openxmlformats-officedocument.presentationml.slide", "application/vnd.oasis.opendocument.presentation-template", "application/vnd.oasis.opendocument.presentation-flat-xml"]
 
 ["Text"]
 types = ["text/plain"]
