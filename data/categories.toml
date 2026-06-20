@@ -40,10 +40,10 @@ types = ["application/vnd.ms-powerpoint", "application/vnd.openxmlformats-office
 types = ["text/plain"]
 
 ["Text.Markup"]
-types = ["text/markdown", "text/x-rst", "text/troff", "text/x-tex", "text/x-latex"]
+types = ["text/markdown", "text/x-rst", "text/troff", "text/x-tex", "text/x-latex", "text/sgml", "text/org", "text/x-texinfo", "text/x-bibtex", "text/x-opml+xml", "text/turtle"]
 
 ["Text.Development"]
-types = ["application/x-ipynb+json"]
+types = ["application/x-ipynb+json", "text/x-patch", "text/x-gettext-translation", "text/x-gettext-translation-template", "text/vnd.trolltech.linguist", "text/vnd.graphviz", "text/x-log", "text/x-ldif"]
 
 ["Text.Development.Python"]
 types = ["text/x-python", "text/x-python3", "text/x-script.python"]
@@ -82,28 +82,97 @@ types = ["text/x-lua"]
 types = ["application/x-perl"]
 
 ["Text.Development.Haskell"]
-types = ["text/x-haskell"]
+types = ["text/x-haskell", "text/x-literate-haskell"]
 
 ["Text.Development.SQL"]
 types = ["application/sql", "text/x-sql"]
 
 ["Text.Development.Web"]
-types = ["text/css", "text/x-scss", "text/x-less"]
+types = ["text/css", "text/x-scss", "text/x-less", "text/x-sass", "text/x-twig", "text/x-qml", "text/x-gherkin"]
 
 ["Text.Development.Config"]
-types = ["application/json", "application/yaml", "application/toml", "application/xml", "text/x-ini", "application/x-desktop"]
+types = ["application/json", "application/yaml", "application/toml", "application/xml", "text/x-ini", "application/x-desktop", "text/x-cmake", "text/x-makefile", "text/x-meson", "text/x-gradle", "text/x-scons", "text/x-dbus-service", "text/x-systemd-unit", "text/x-rpm-spec", "text/x-blueprint", "text/x-kaitai-struct", "text/x-maven+xml", "text/x-idl", "text/x-xslfo", "text/x-devicetree-source", "text/x-devicetree-binary"]
+
+["Text.Development.CSharp"]
+types = ["text/x-csharp"]
+
+["Text.Development.Kotlin"]
+types = ["text/x-kotlin"]
+
+["Text.Development.Scala"]
+types = ["text/x-scala"]
+
+["Text.Development.Groovy"]
+types = ["text/x-groovy"]
+
+["Text.Development.Julia"]
+types = ["text/julia"]
+
+["Text.Development.Crystal"]
+types = ["text/x-crystal"]
+
+["Text.Development.Elixir"]
+types = ["text/x-elixir"]
+
+["Text.Development.Erlang"]
+types = ["text/x-erlang"]
+
+["Text.Development.OCaml"]
+types = ["text/x-ocaml"]
+
+["Text.Development.Pascal"]
+types = ["text/x-pascal"]
+
+["Text.Development.Fortran"]
+types = ["text/x-fortran"]
+
+["Text.Development.Ada"]
+types = ["text/x-adasrc"]
+
+["Text.Development.Cobol"]
+types = ["text/x-cobol"]
+
+["Text.Development.Scheme"]
+types = ["text/x-scheme", "text/x-common-lisp", "text/x-emacs-lisp"]
+
+["Text.Development.Nim"]
+types = ["text/x-nim", "text/x-nimscript"]
+
+["Text.Development.Vala"]
+types = ["text/x-vala", "text/x-genie"]
+
+["Text.Development.D"]
+types = ["text/x-dsrc"]
+
+["Text.Development.Eiffel"]
+types = ["text/x-eiffel"]
+
+["Text.Development.Matlab"]
+types = ["text/x-matlab", "text/x-sagemath", "text/x-modelica"]
+
+["Text.Development.Typst"]
+types = ["text/x-typst"]
+
+["Text.Development.HDL"]
+types = ["text/x-verilog", "text/x-vhdl", "text/x-svhdr", "text/x-svsrc", "text/x-opencl-src"]
+
+["Text.Development.ObjectiveC"]
+types = ["text/x-objcsrc", "text/x-objc++src"]
+
+["Text.Development.Tcl"]
+types = ["text/tcl", "text/vbscript"]
 
 ["Web"]
-types = ["text/html", "application/xhtml+xml", "application/rss+xml", "application/atom+xml"]
+types = ["text/html", "application/xhtml+xml", "application/rss+xml", "application/atom+xml", "text/cache-manifest", "text/vnd.wap.wml", "text/vnd.wap.wmlscript", "text/htmlh", "application/xml-dtd", "application/xml-external-parsed-entity"]
 
 ["Archives"]
-types = ["application/zip", "application/x-tar", "application/gzip", "application/x-bzip2", "application/x-xz", "application/x-7z-compressed", "application/vnd.rar", "application/zstd", "application/x-lzma", "application/x-compressed-tar", "application/x-bzip-compressed-tar", "application/x-xz-compressed-tar", "application/x-cpio", "application/vnd.ms-cab-compressed", "application/x-lzip"]
+types = ["application/zip", "application/x-tar", "application/gzip", "application/x-bzip2", "application/x-xz", "application/x-7z-compressed", "application/vnd.rar", "application/zstd", "application/x-lzma", "application/x-compressed-tar", "application/x-bzip-compressed-tar", "application/x-xz-compressed-tar", "application/x-cpio", "application/vnd.ms-cab-compressed", "application/x-lzip", "application/x-archive", "application/x-bzip", "application/x-bzip2-compressed-tar", "application/x-bzip3", "application/x-bzip3-compressed-tar", "application/x-compress", "application/x-cpio-compressed", "application/x-lrzip", "application/x-lrzip-compressed-tar", "application/x-lz4", "application/x-lz4-compressed-tar", "application/x-lzip-compressed-tar", "application/x-lzma-compressed-tar", "application/x-lzop", "application/x-tarz", "application/x-ustar", "application/x-zstd-compressed-tar", "application/x-alz", "application/java-archive", "application/x-modrinth-modpack+zip"]
 
 ["Archives.Packages"]
-types = ["application/vnd.debian.binary-package", "application/x-rpm", "application/vnd.flatpak", "application/vnd.appimage", "application/vnd.android.package-archive", "application/vnd.snap"]
+types = ["application/vnd.debian.binary-package", "application/x-rpm", "application/vnd.flatpak", "application/vnd.appimage", "application/vnd.android.package-archive", "application/vnd.snap", "application/x-source-rpm"]
 
 ["Archives.DiskImages"]
-types = ["application/x-cd-image", "application/x-apple-diskimage", "application/x-raw-disk-image"]
+types = ["application/x-cd-image", "application/x-apple-diskimage", "application/x-raw-disk-image", "application/x-compressed-iso", "application/x-raw-disk-image-xz-compressed"]
 
 ["Fonts"]
 types = ["font/ttf", "font/otf", "font/woff", "font/woff2", "font/collection", "font/sfnt", "application/vnd.ms-fontobject", "application/x-font-bdf", "application/x-font-linux-psf", "application/x-font-sfn", "application/x-font-speedo", "application/x-font-ttx", "application/x-font-type1", "application/x-font-pcf"]
