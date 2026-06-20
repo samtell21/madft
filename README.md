@@ -4,7 +4,7 @@
 
 `gio` and `xdg-mime` already answer *"what could open this file?"*. `madft` answers the other question — *"what should be the **default**, and how do I curate that across everything?"* — with a navigable category tree, exact-declaration semantics, correct XDG precedence, and atomic, backed-up writes. It's designed to be a stable machine-facing API (`--json`) that a TUI or other front-end can sit on top of.
 
-> Status: MVP complete. 8 commands, human + `--json` output, ~83 tests. Single self-contained binary; the only thing it mutates is `~/.config/mimeapps.list`.
+> Status: v0.4.0. 8 commands, human + `--json` output, ~83 tests. Single self-contained binary; the only thing it mutates is `~/.config/mimeapps.list`.
 
 ## Install
 
@@ -18,7 +18,7 @@ cargo install --path .          # installs `madft` to ~/.cargo/bin
 
 ## Quick start
 
-`madft` works out of the box with a **built-in default category tree**, so `ls` shows sensible groups (Media, Images, Documents, Web, Archives…) immediately — no setup. Anything not placed in the tree still has a home — it falls into a flat `Other` node — and `-a`/`--all` reveals everything, including types with no installed app (hidden by default; see Presence filter below).
+`madft` works out of the box with a **built-in default category tree** covering ~570 curated types across Media, Images, Documents, Text, Web, Archives, Fonts, Models, Data, Software, Personal, Games, Mail, Security, and Media.Subtitles — so `ls` shows sensible groups immediately, no setup needed. The curated tree is also the source of truth for types that `file`/`xdg-open` emit via content-sniffing (libmagic) but that shared-mime-info doesn't register — for example `font/sfnt`, which `.ttf` files resolve to when sniffed, is listed explicitly so font-opener defaults apply correctly. Anything not in the tree still has a home — it falls into a flat `Other` node — and `-a`/`--all` reveals everything, including types with no installed app (hidden by default; see Presence filter below).
 
 To customize, drop an editable copy of the default on disk and edit it (`overrides.toml` is also merged on top, if present):
 
@@ -71,7 +71,7 @@ Global flags: `--json` (machine output) and `-a`/`--all` (include types/categori
 
 - **Two distinct trees.** The **category tree** is your human navigation overlay (`Media.Video`); the **freedesktop subclass DAG** (`text/html → text/plain`, plus aliases like `image/jpg → image/jpeg`) is a separate axis. They stay distinct, but the DAG is no longer just an annotation — it drives openability, the effective default, and `set` (see *Subclass inheritance* below).
 - **Exact-declaration, plus inheritance.** "App X *declares* type T" means X's `.desktop` file *explicitly* lists T in `MimeType=`. By default `set` covers types the app declares **or can open via a parent type**; `--exact` restricts to literal declarations, and `--force` overrides the guard entirely.
-- **Total tree.** Every type in your system's MIME database resolves to some node — unplaced types fall to a flat `Other`, so nothing is invisible.
+- **Total tree.** Every type in your system's MIME database resolves to some node — unplaced types fall to a flat `Other`, so nothing is invisible. The built-in tree (~570 types in v0.4.0) also first-classes types that `file`/`xdg-open` emit via libmagic content-sniffing but that shared-mime-info doesn't register (e.g. `font/sfnt` — what a `.ttf` becomes when sniffed). Listing them in the curated tree means `madft set` covers them and content-sniffing openers resolve to the right app.
 - **Presence filter.** By default `madft` shows only what your machine can act on — types with at least one installed app, and categories that contain such a type. The built-in tree is deliberately comprehensive (the long tail still lands in `Other`), so pass **`-a`/`--all`** to any listing or `set` to see/act on the full taxonomy. Naming a mimetype explicitly (or via `--types`) always works, filtered or not.
 - **Subclass inheritance is real.** A type you can open *via an ancestor* (your editor handles `text/plain`, so it opens `text/x-python`) counts as openable — it shows in `ls`, gets an **effective default** in `info` (`default: nvim.desktop (via text/plain)`), and `set` will set your app for it without `--force`. Pass **`--exact`** to `set` to restrict to types the app declares literally (leaving inherited-only types blank, still inheriting).
 - **Correct XDG precedence.** `~/.local/share` shadows system dirs (the *correct* direction — not the inverted first-seen behavior some launchers use).
