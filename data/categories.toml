@@ -91,7 +91,7 @@ types = ["application/sql", "text/x-sql"]
 types = ["text/css", "text/x-scss", "text/x-less", "text/x-sass", "text/x-twig", "text/x-qml", "text/x-gherkin"]
 
 ["Text.Development.Config"]
-types = ["application/json", "application/yaml", "application/toml", "application/xml", "text/x-ini", "application/x-desktop", "text/x-cmake", "text/x-makefile", "text/x-meson", "text/x-gradle", "text/x-scons", "text/x-dbus-service", "text/x-systemd-unit", "text/x-rpm-spec", "text/x-blueprint", "text/x-kaitai-struct", "text/x-maven+xml", "text/x-idl", "text/x-xslfo", "text/x-devicetree-source", "text/x-devicetree-binary"]
+types = ["application/json", "application/yaml", "application/toml", "application/xml", "text/x-ini", "application/x-desktop", "text/x-cmake", "text/x-makefile", "text/x-meson", "text/x-gradle", "text/x-scons", "text/x-dbus-service", "text/x-systemd-unit", "text/x-rpm-spec", "text/x-blueprint", "text/x-kaitai-struct", "text/x-maven+xml", "text/x-idl", "text/x-xslfo", "text/x-devicetree-source"]
 
 ["Text.Development.CSharp"]
 types = ["text/x-csharp"]
