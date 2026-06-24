@@ -38,7 +38,11 @@ pub enum Command {
     /// List apps that can handle a category path or mimetype (root if omitted).
     Apps { target: Option<String> },
     /// Show one app's declared types, their categories, and what it's default for.
-    App { id: String },
+    App {
+        id: String,
+        #[command(subcommand)]
+        action: Option<AppAction>,
+    },
     /// Set an app as the default for a category path or mimetype (root if omitted).
     Set {
         app: String,
@@ -68,6 +72,15 @@ pub enum Command {
         /// Overwrite an existing categories.toml.
         #[arg(short = 'f', long)]
         force: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AppAction {
+    /// Show the parsed .desktop file, or select specific fields
+    Desktop {
+        /// Specific keys to print (case-sensitive, from [Desktop Entry])
+        fields: Vec<String>,
     },
 }
 
@@ -132,9 +145,15 @@ fn run_command(engine: &Engine, command: &Command, json: bool, show_all: bool) -
             let r = engine.apps(target.as_deref(), show_all)?;
             if json { to_json(&r) } else { human_apps(&r) }
         }
-        Command::App { id } => {
-            let r = engine.app(id)?;
-            if json { to_json(&r) } else { human_app(&r) }
+        Command::App { id, action } => match action {
+            None => {
+                let r = engine.app(id)?;
+                if json { to_json(&r) } else { human_app(&r) }
+            }
+            Some(AppAction::Desktop { fields }) => {
+                let file = engine.desktop(id)?;
+                render_desktop(&file, fields, json)
+            }
         }
         Command::Set { app, target, types, force, no_clobber, exact, dry_run } => {
             let filter = if types.is_empty() { None } else { Some(types.as_slice()) };
@@ -285,6 +304,43 @@ fn human_app(r: &AppReport) -> String {
         s.push_str(&format!("  {tag}  {}  [{cat}]{note}\n", t.mime));
     }
     s.trim_end().to_string()
+}
+
+/// Render a parsed `.desktop` file: full INI-style dump, or selected raw values.
+fn render_desktop(file: &crate::desktop::DesktopFile, fields: &[String], json: bool) -> String {
+    if fields.is_empty() {
+        // Full dump.
+        if json {
+            return to_json(file);
+        }
+        let mut s = String::new();
+        for section in &file.sections {
+            s.push_str(&format!("[{}]\n", section.name));
+            for (k, v) in &section.entries {
+                s.push_str(&format!("{k}={v}\n"));
+            }
+            s.push('\n');
+        }
+        return s.trim_end().to_string();
+    }
+
+    // Field selection: case-sensitive, [Desktop Entry] only.
+    let entry = file.entry_section();
+    if json {
+        let mut map = serde_json::Map::new();
+        for f in fields {
+            let val = entry
+                .and_then(|s| s.get(f))
+                .map_or(serde_json::Value::Null, |v| serde_json::Value::String(v.to_string()));
+            map.insert(f.clone(), val);
+        }
+        return to_json(&serde_json::Value::Object(map));
+    }
+    fields
+        .iter()
+        .map(|f| entry.and_then(|s| s.get(f)).unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn human_set(p: &SetPlan) -> String {
@@ -486,7 +542,7 @@ mod tests {
 
     #[test]
     fn app_json_reports_rows() {
-        let out = execute(&engine(), &Command::App { id: "mpv".to_string() }, true, false);
+        let out = execute(&engine(), &Command::App { id: "mpv".to_string(), action: None }, true, false);
         assert_eq!(out.code, 0);
         let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
         assert_eq!(v["id"], "mpv.desktop");
@@ -556,12 +612,62 @@ mod tests {
             config_dirs: vec![],
         };
         let e = Engine::load(&roots, &[]).unwrap();
-        let out = execute(&e, &Command::App { id: "mpv".to_string() }, false, false);
+        let out = execute(&e, &Command::App { id: "mpv".to_string(), action: None }, false, false);
         assert_eq!(out.code, 0);
         // mpv is default for image/png but doesn't declare it.
         assert!(out.stdout.contains("DEFAULT  image/png"));
         assert!(out.stdout.contains("(not declared)"));
         assert!(out.stdout.lines().filter(|l| l.contains("DEFAULT")).count() >= 1);
+    }
+
+    #[test]
+    fn desktop_full_json_has_sections() {
+        let cmd = Command::App { id: "mpv".to_string(), action: Some(AppAction::Desktop { fields: vec![] }) };
+        let out = execute(&engine(), &cmd, true, false);
+        assert_eq!(out.code, 0);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert!(v["path"].as_str().unwrap().ends_with("mpv.desktop"));
+        assert_eq!(v["sections"]["Desktop Entry"]["Name"], "mpv Media Player");
+    }
+
+    #[test]
+    fn desktop_full_human_reproduces_ini() {
+        let cmd = Command::App { id: "mpv".to_string(), action: Some(AppAction::Desktop { fields: vec![] }) };
+        let out = execute(&engine(), &cmd, false, false);
+        assert!(out.stdout.contains("[Desktop Entry]"));
+        assert!(out.stdout.contains("Name=mpv Media Player"));
+    }
+
+    #[test]
+    fn desktop_selected_fields_human_one_per_line() {
+        let cmd = Command::App {
+            id: "mpv".to_string(),
+            action: Some(AppAction::Desktop { fields: vec!["Name".to_string(), "Exec".to_string()] }),
+        };
+        let out = execute(&engine(), &cmd, false, false);
+        // No trailing newline — run() adds the final one via println!.
+        assert_eq!(out.stdout, "mpv Media Player\nmpv %U");
+    }
+
+    #[test]
+    fn desktop_selected_fields_json_keyed_by_field() {
+        let cmd = Command::App {
+            id: "mpv".to_string(),
+            action: Some(AppAction::Desktop { fields: vec!["Exec".to_string(), "Nope".to_string()] }),
+        };
+        let out = execute(&engine(), &cmd, true, false);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(v["Exec"], "mpv %U");
+        assert!(v["Nope"].is_null());
+    }
+
+    #[test]
+    fn desktop_unknown_app_errors_json() {
+        let cmd = Command::App { id: "ghost".to_string(), action: Some(AppAction::Desktop { fields: vec![] }) };
+        let out = execute(&engine(), &cmd, true, false);
+        assert_eq!(out.code, 1);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(v["error"]["kind"], "unknown-app");
     }
 
     #[test]
