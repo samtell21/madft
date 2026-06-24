@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Actions App
+Name[de]=Aktionen App
+Exec=actions-app %U
+Terminal=false
+X-Custom-Flag=hello
+MimeType=application/x-madft-fixture;
+
+[Desktop Action new-window]
+Name=New Window
+Exec=actions-app --new-window

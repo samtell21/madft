@@ -339,3 +339,32 @@ fn golden_set_exact_rejects_inherited() {
     let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(v["error"]["kind"], "app-handles-nothing-under-umbrella");
 }
+
+#[test]
+fn golden_desktop_full_json_is_faithful() {
+    let cli = parse(&["madft", "app", "actions-app", "desktop", "--json"]);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
+    assert_eq!(out.code, 0);
+    let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    let entry = &v["sections"]["Desktop Entry"];
+    assert_eq!(entry["Name[de]"], "Aktionen App");      // locale key verbatim
+    assert_eq!(entry["X-Custom-Flag"], "hello");        // X- extension kept
+    assert_eq!(entry["Terminal"], "false");             // raw string, not a bool
+    assert_eq!(v["sections"]["Desktop Action new-window"]["Exec"], "actions-app --new-window");
+}
+
+#[test]
+fn golden_desktop_selected_field_plain() {
+    let cli = parse(&["madft", "app", "actions-app", "desktop", "Exec"]);
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
+    assert_eq!(out.code, 0);
+    // No trailing newline — execute() captures stdout before run()'s println!.
+    assert_eq!(out.stdout, "actions-app %U");
+}
+
+#[test]
+fn golden_desktop_case_sensitive_miss_is_empty() {
+    let cli = parse(&["madft", "app", "actions-app", "desktop", "exec"]); // wrong case
+    let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
+    assert_eq!(out.stdout, ""); // single missed field → empty string (println! prints one blank line)
+}
