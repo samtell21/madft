@@ -4,7 +4,7 @@
 
 `gio` and `xdg-mime` already answer *"what could open this file?"*. `madft` answers the other question — *"what should be the **default**, and how do I curate that across everything?"* — with a navigable category tree, exact-declaration semantics, correct XDG precedence, and atomic, backed-up writes. It's designed to be a stable machine-facing API (`--json`) that a TUI or other front-end can sit on top of.
 
-> Status: v0.4.0. 8 commands, human + `--json` output, ~83 tests. Single self-contained binary; the only thing it mutates is `~/.config/mimeapps.list`.
+> Status: v0.5.0. 9 commands, human + `--json` output, ~83 tests. Single self-contained binary; the only thing it mutates is `~/.config/mimeapps.list`.
 
 ## Install
 
@@ -58,6 +58,7 @@ Add `--json` to any command for machine-readable output.
 | `info <mimetype>` | Canonical name, **category**, **effective default** (`{app, via}` — `via` set when inherited from a parent type), apps that declare it, apps that could open it via inheritance, and the `inherits if unset` chain. |
 | `apps [PATH\|mimetype]` | Apps that declare any of the umbrella's types, ranked by coverage. With no target, the whole tree (`.` is an explicit root alias). |
 | `app <id>` | One app's mimetypes: those it declares **and** those it's the current default for (even undeclared ones, flagged `declares: false` / `(not declared)` and marked `DEFAULT`), plus the category each falls in. |
+| `app <id> desktop [fields…]` | Parse the app's `.desktop` file. With no fields, dumps all sections and keys in file order (use `--json` for machine output). With field names (case-sensitive, from `[Desktop Entry]`), prints just those raw values one per line — handy for scripts without `jq`. |
 | `get <mimetype>` | The bare current default id (empty if unset). Scriptable. |
 | `set <app> [PATH\|mimetype] [--types a,b] [-f/--force] [--no-clobber] [--exact] [--dry-run]` | Set `app` as default for the umbrella's types it handles — declared **or** reachable via a parent type. `--exact` restricts to literally-declared types; `--force` overrides entirely; `--no-clobber` fills only unset; `--dry-run` previews. |
 | `unset <mimetype>` | Remove the user default for a type. |
@@ -121,6 +122,17 @@ Every command emits a stable, additive JSON schema for scripting and front-ends:
     {"mime": "text/css",   "category": "Web",       "declares": false, "is_default": true,  "current_default": "nvim.desktop"},
     {"mime": "text/plain", "category": "Documents", "declares": true,  "is_default": false, "current_default": null}
   ]
+}
+```
+
+```jsonc
+// madft app nvim desktop --json
+{
+  "path": "/usr/share/applications/nvim.desktop",
+  "sections": {
+    "Desktop Entry": {"Name": "Neovim", "Exec": "nvim %F", "Terminal": "true", "MimeType": "text/plain;"},
+    "Desktop Action new-window": {"Name": "Open a New Window", "Exec": "nvim"}
+  }
 }
 ```
 
