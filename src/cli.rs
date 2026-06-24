@@ -96,6 +96,18 @@ fn to_json<T: serde::Serialize>(v: &T) -> String {
     serde_json::to_string_pretty(v).unwrap_or_else(|_| "{}".to_string())
 }
 
+/// Parse a newline-delimited mimetype list from stdin. Each line is trimmed;
+/// blank/whitespace-only lines are dropped. Unlike `--types` (comma-split flag
+/// value), stdin is a stream split on newlines — no comma/comment/quote magic.
+fn parse_type_lines(input: &str) -> Vec<String> {
+    input
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect()
+}
+
 /// Stable kebab-case error kind for the `--json` envelope (spec §7).
 fn error_kind(e: &Error) -> &'static str {
     match e {
@@ -695,5 +707,25 @@ mod tests {
         assert!(out.stdout.contains("nothing installed under Ghost"));
         let out_all = execute(&e, &Command::Ls { path: Some("Ghost".to_string()) }, false, true);
         assert!(out_all.stdout.contains("application/pdf"));
+    }
+
+    #[test]
+    fn parse_type_lines_trims_and_skips_blanks() {
+        let input = "  text/x-foo \n\nimage/png\n   \napplication/pdf\n";
+        assert_eq!(
+            parse_type_lines(input),
+            vec!["text/x-foo", "image/png", "application/pdf"]
+        );
+    }
+
+    #[test]
+    fn parse_type_lines_does_not_split_on_commas() {
+        // Unlike --types, a comma is part of the (here nonsensical) line, not a delimiter.
+        assert_eq!(parse_type_lines("a/b,c/d\n"), vec!["a/b,c/d"]);
+    }
+
+    #[test]
+    fn parse_type_lines_empty_input_is_empty() {
+        assert_eq!(parse_type_lines("   \n\n").len(), 0);
     }
 }
