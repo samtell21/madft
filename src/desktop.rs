@@ -1,6 +1,8 @@
 //! Faithful, order-preserving parser for freedesktop `.desktop` files.
 //! Values are raw strings — no type coercion, no `Exec` splitting, keys verbatim.
 
+use serde::ser::{Serialize, SerializeMap, Serializer};
+
 #[derive(Debug, Clone)]
 pub struct DesktopFile {
     pub path: String,
@@ -27,6 +29,41 @@ impl DesktopFile {
     /// The `[Desktop Entry]` section, if present.
     pub fn entry_section(&self) -> Option<&DesktopSection> {
         self.sections.iter().find(|s| s.name == "Desktop Entry")
+    }
+}
+
+impl Serialize for DesktopFile {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(2))?;
+        map.serialize_entry("path", &self.path)?;
+        map.serialize_entry("sections", &Sections(&self.sections))?;
+        map.end()
+    }
+}
+
+/// Serializes a slice of sections as a JSON object keyed by section name.
+struct Sections<'a>(&'a [DesktopSection]);
+
+impl Serialize for Sections<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for section in self.0 {
+            map.serialize_entry(&section.name, &Entries(&section.entries))?;
+        }
+        map.end()
+    }
+}
+
+/// Serializes a slice of key/value pairs as a JSON object in order.
+struct Entries<'a>(&'a [(String, String)]);
+
+impl Serialize for Entries<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (k, v) in self.0 {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
     }
 }
 
@@ -125,5 +162,21 @@ mod tests {
     fn entry_section_finds_desktop_entry() {
         let f = parse("[Desktop Action x]\nName=A\n[Desktop Entry]\nName=B\n");
         assert_eq!(f.entry_section().unwrap().get("Name"), Some("B"));
+    }
+
+    #[test]
+    fn serializes_to_ordered_json_objects() {
+        let mut f = parse("[Desktop Entry]\nName=Neovim\nExec=nvim %F\n[Desktop Action x]\nName=W\n");
+        f.path = "/apps/nvim.desktop".to_string();
+        let v: serde_json::Value = serde_json::to_value(&f).unwrap();
+        assert_eq!(v["path"], "/apps/nvim.desktop");
+        assert_eq!(v["sections"]["Desktop Entry"]["Exec"], "nvim %F");
+        assert_eq!(v["sections"]["Desktop Action x"]["Name"], "W");
+
+        // Order preserved in the serialized string.
+        let s = serde_json::to_string(&f).unwrap();
+        let name_at = s.find("\"Name\"").unwrap();
+        let exec_at = s.find("\"Exec\"").unwrap();
+        assert!(name_at < exec_at, "keys should serialize in file order");
     }
 }
