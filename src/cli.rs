@@ -105,6 +105,9 @@ fn error_kind(e: &Error) -> &'static str {
         Error::InvalidCategoryName(_) => "invalid-category-name",
         Error::DuplicatePlacement { .. } => "duplicate-placement",
         Error::MimeDbNotFound(_) => "mime-db-not-found",
+        Error::ConflictingTypeSource => "conflicting-type-source",
+        Error::EmptyTypeList => "empty-type-list",
+        Error::MissingMimetype => "missing-mimetype",
         Error::Io(_) => "io",
         Error::Parse { .. } => "parse",
     }

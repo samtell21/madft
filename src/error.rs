@@ -26,6 +26,15 @@ pub enum Error {
 
     #[error("parse error in {path}: {msg}")]
     Parse { path: String, msg: String },
+
+    #[error("--types cannot be combined with a stdin type list")]
+    ConflictingTypeSource,
+
+    #[error("no mimetypes on stdin")]
+    EmptyTypeList,
+
+    #[error("no mimetype given (provide one, pipe a list, or use '-')")]
+    MissingMimetype,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -43,6 +52,19 @@ mod tests {
         assert_eq!(
             e.to_string(),
             "'mpv.desktop' declares none of the types under 'Images'"
+        );
+    }
+
+    #[test]
+    fn new_stdin_variants_display() {
+        assert_eq!(
+            Error::ConflictingTypeSource.to_string(),
+            "--types cannot be combined with a stdin type list"
+        );
+        assert_eq!(Error::EmptyTypeList.to_string(), "no mimetypes on stdin");
+        assert_eq!(
+            Error::MissingMimetype.to_string(),
+            "no mimetype given (provide one, pipe a list, or use '-')"
         );
     }
 }
