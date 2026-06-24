@@ -3,6 +3,7 @@
 //! "app X handles type T" — never subclass-aware.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use crate::error::Result;
 use crate::paths::Roots;
@@ -14,6 +15,7 @@ pub struct App {
     pub name: String,
     pub nodisplay: bool,
     pub mimetypes: HashSet<MimeType>,
+    pub path: PathBuf,
 }
 
 #[derive(Debug, Default)]
@@ -22,38 +24,21 @@ pub struct AppIndex {
     by_type: HashMap<MimeType, Vec<DesktopId>>,
 }
 
-/// Parse one desktop file's [Desktop Entry] keys we care about.
+/// Extract the [Desktop Entry] fields the index needs, via the shared parser.
 /// Returns None if there is no [Desktop Entry] group.
 fn parse_desktop(content: &str) -> Option<(String, bool, HashSet<MimeType>)> {
-    let mut in_entry = false;
-    let mut name = String::new();
-    let mut nodisplay = false;
-    let mut mimetypes = HashSet::new();
+    let file = crate::desktop::parse(content);
+    let entry = file.entry_section()?;
 
-    for line in content.lines() {
-        let line = line.trim();
-        if line.starts_with('[') && line.ends_with(']') {
-            in_entry = line == "[Desktop Entry]";
-            continue;
-        }
-        if !in_entry || line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        match key.trim() {
-            "Name" if name.is_empty() => name = value.trim().to_string(),
-            "NoDisplay" => nodisplay = value.trim().eq_ignore_ascii_case("true"),
-            "MimeType" => {
-                for t in value.split(';') {
-                    let t = t.trim();
-                    if !t.is_empty() {
-                        mimetypes.insert(MimeType::new(t));
-                    }
-                }
+    let name = entry.get("Name").unwrap_or("").to_string();
+    let nodisplay = entry.get("NoDisplay").is_some_and(|v| v.eq_ignore_ascii_case("true"));
+    let mut mimetypes = HashSet::new();
+    if let Some(list) = entry.get("MimeType") {
+        for t in list.split(';') {
+            let t = t.trim();
+            if !t.is_empty() {
+                mimetypes.insert(MimeType::new(t));
             }
-            _ => {}
         }
     }
     Some((name, nodisplay, mimetypes))
@@ -89,7 +74,7 @@ impl AppIndex {
                     }
                     idx.apps.insert(
                         id.clone(),
-                        App { id, name, nodisplay, mimetypes },
+                        App { id, name, nodisplay, mimetypes, path: path.clone() },
                     );
                 }
             }
@@ -165,5 +150,12 @@ mod tests {
         let idx = AppIndex::load(&roots).unwrap();
         let app = idx.app(&DesktopId::new("webcam")).unwrap();
         assert_eq!(app.name, "Webcam HOME");
+    }
+
+    #[test]
+    fn app_records_its_source_path() {
+        let idx = index_single_dir();
+        let app = idx.app(&DesktopId::new("mpv")).unwrap();
+        assert!(app.path.ends_with("mpv.desktop"), "got {:?}", app.path);
     }
 }
