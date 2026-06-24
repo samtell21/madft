@@ -676,6 +676,19 @@ mod tests {
     }
 
     #[test]
+    fn desktop_parses_named_app_with_path() {
+        let f = engine().desktop("mpv").unwrap();
+        assert!(f.path.ends_with("mpv.desktop"));
+        assert_eq!(f.entry_section().unwrap().get("Name"), Some("mpv Media Player"));
+    }
+
+    #[test]
+    fn desktop_unknown_app_errors() {
+        let err = engine().desktop("ghost").unwrap_err();
+        assert!(matches!(err, crate::error::Error::UnknownApp(_)));
+    }
+
+    #[test]
     fn builtin_default_tree_used_when_no_config() {
         let f = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
         let empty = std::env::temp_dir().join("madft-no-config-test");
@@ -793,6 +806,19 @@ impl Engine {
             dry_run: opts.dry_run,
             written,
         })
+    }
+
+    /// Parse the named app's `.desktop` file faithfully (raw strings, file order).
+    pub fn desktop(&self, id: &str) -> Result<crate::desktop::DesktopFile> {
+        let app_id = DesktopId::new(id);
+        let app = self
+            .appindex
+            .app(&app_id)
+            .ok_or_else(|| Error::UnknownApp(app_id.to_string()))?;
+        let content = std::fs::read_to_string(&app.path)?;
+        let mut file = crate::desktop::parse(&content);
+        file.path = app.path.display().to_string();
+        Ok(file)
     }
 
     /// `unset <mimetype>`: remove the user default for the (canonicalized) type.
