@@ -366,5 +366,5 @@ fn golden_desktop_selected_field_plain() {
 fn golden_desktop_case_sensitive_miss_is_empty() {
     let cli = parse(&["madft", "app", "actions-app", "desktop", "exec"]); // wrong case
     let out = execute(&read_engine(), &cli.command, cli.json, cli.all);
-    assert_eq!(out.stdout, ""); // single missed field → empty string (println! prints one blank line)
+    assert_eq!(out.stdout, ""); // single missed field → empty string; run() guards on is_empty(), so nothing is printed
 }

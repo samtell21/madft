@@ -68,11 +68,14 @@ impl Serialize for Entries<'_> {
 }
 
 /// Parse `.desktop` content into ordered sections of ordered key/value pairs.
-/// Faithful: keys verbatim, values raw, file order preserved. The first
-/// occurrence of a key within a section wins (keeps emitted JSON objects valid).
+/// Faithful: keys verbatim, values raw, file order preserved. First occurrence
+/// wins for both keys within a section and section names — subsequent
+/// same-named sections and their keys are ignored, keeping emitted JSON objects
+/// valid (no duplicate keys at either level).
 /// `path` is left empty for the caller to populate.
 pub fn parse(content: &str) -> DesktopFile {
     let mut sections: Vec<DesktopSection> = Vec::new();
+    let mut skipping = false; // true while inside a duplicate section
 
     for line in content.lines() {
         let line = line.trim();
@@ -81,8 +84,16 @@ pub fn parse(content: &str) -> DesktopFile {
         }
         if line.starts_with('[') && line.ends_with(']') {
             let name = line[1..line.len() - 1].to_string();
-            sections.push(DesktopSection { name, entries: Vec::new() });
+            if sections.iter().any(|s| s.name == name) {
+                skipping = true; // duplicate section — ignore its body
+            } else {
+                skipping = false;
+                sections.push(DesktopSection { name, entries: Vec::new() });
+            }
             continue;
+        }
+        if skipping {
+            continue; // inside a duplicate section — drop all key/value lines
         }
         let Some(section) = sections.last_mut() else {
             continue; // key/value before the first header — ignore
@@ -162,6 +173,14 @@ mod tests {
     fn entry_section_finds_desktop_entry() {
         let f = parse("[Desktop Action x]\nName=A\n[Desktop Entry]\nName=B\n");
         assert_eq!(f.entry_section().unwrap().get("Name"), Some("B"));
+    }
+
+    #[test]
+    fn first_section_of_a_duplicate_name_wins() {
+        let f = parse("[Desktop Entry]\nName=First\n[Desktop Entry]\nName=Second\nExtra=x\n");
+        assert_eq!(f.sections.len(), 1);
+        assert_eq!(f.sections[0].get("Name"), Some("First"));
+        assert_eq!(f.sections[0].get("Extra"), None); // body of the duplicate section is dropped
     }
 
     #[test]

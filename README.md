@@ -4,7 +4,7 @@
 
 `gio` and `xdg-mime` already answer *"what could open this file?"*. `madft` answers the other question — *"what should be the **default**, and how do I curate that across everything?"* — with a navigable category tree, exact-declaration semantics, correct XDG precedence, and atomic, backed-up writes. It's designed to be a stable machine-facing API (`--json`) that a TUI or other front-end can sit on top of.
 
-> Status: v0.5.0. 9 commands, human + `--json` output, ~83 tests. Single self-contained binary; the only thing it mutates is `~/.config/mimeapps.list`.
+> Status: v0.5.0. 9 commands, human + `--json` output, ~144 tests. Single self-contained binary; the only thing it mutates is `~/.config/mimeapps.list`.
 
 ## Install
 
