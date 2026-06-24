@@ -730,15 +730,41 @@ impl Engine {
     ) -> Result<SetPlan> {
         let (label, raw) = self.resolve_umbrella(target)?;
         let umbrella = self.filter_umbrella(target, raw, opts.show_all, types_filter.is_some());
-        let app_id = DesktopId::new(app);
-        if self.appindex.app(&app_id).is_none() {
-            return Err(Error::UnknownApp(app_id.to_string()));
-        }
         let filter: Option<Vec<MimeType>> = types_filter.map(|fs| {
             fs.iter()
                 .map(|s| self.mimedb.canonicalize(&MimeType::new(s.as_str())))
                 .collect()
         });
+        self.set_core(&DesktopId::new(app), label, umbrella, filter, opts)
+    }
+
+    /// `set` over an explicit, already-known list of mimetypes (e.g. from stdin):
+    /// the types become the umbrella directly, bypassing the category tree. They
+    /// are alias-canonicalized and de-duplicated (first occurrence wins). Label is
+    /// `"(stdin)"`. No `--types` filter applies. All other guards match `set`.
+    pub fn set_types(&self, app: &str, types: &[String], opts: SetOptions) -> Result<SetPlan> {
+        let mut seen: std::collections::HashSet<MimeType> = std::collections::HashSet::new();
+        let umbrella: Vec<MimeType> = types
+            .iter()
+            .map(|s| self.mimedb.canonicalize(&MimeType::new(s.as_str())))
+            .filter(|t| seen.insert(t.clone()))
+            .collect();
+        self.set_core(&DesktopId::new(app), "(stdin)".to_string(), umbrella, None, opts)
+    }
+
+    /// Shared core of `set`/`set_types`: given a resolved umbrella, partition into
+    /// set/skipped/unchanged, compute provenance, and write (unless dry-run).
+    fn set_core(
+        &self,
+        app_id: &DesktopId,
+        label: String,
+        umbrella: Vec<MimeType>,
+        filter: Option<Vec<MimeType>>,
+        opts: SetOptions,
+    ) -> Result<SetPlan> {
+        if self.appindex.app(app_id).is_none() {
+            return Err(Error::UnknownApp(app_id.to_string()));
+        }
 
         let mut candidates: Vec<MimeType> = Vec::new();
         let mut skipped: Vec<MimeType> = Vec::new();
@@ -746,11 +772,10 @@ impl Engine {
             if filter.as_ref().is_some_and(|f| !f.contains(t)) {
                 continue;
             }
-            // Inheritance-aware handling, unless --exact restricts to exact declares.
             let handled = if opts.exact {
-                self.appindex.declares(&app_id, t)
+                self.appindex.declares(app_id, t)
             } else {
-                self.handles(&app_id, t)
+                self.handles(app_id, t)
             };
             if opts.force || handled {
                 candidates.push(t.clone());
@@ -774,12 +799,11 @@ impl Engine {
             (candidates, Vec::new())
         };
 
-        // Provenance: set_types matched via an ancestor (not exactly declared).
         let inherited_via: Vec<InheritedSet> = set_types
             .iter()
-            .filter(|t| !self.appindex.declares(&app_id, t))
+            .filter(|t| !self.appindex.declares(app_id, t))
             .filter_map(|t| {
-                self.nearest_declared_ancestor(&app_id, t)
+                self.nearest_declared_ancestor(app_id, t)
                     .map(|via| InheritedSet { mime: t.to_string(), via: via.to_string() })
             })
             .collect();
@@ -1043,6 +1067,43 @@ mod write_tests {
         let plan = e.set("nvim", Some("text/plain"), None, SetOptions { exact: true, dry_run: true, ..Default::default() }).unwrap();
         assert_eq!(plan.set_types, vec!["text/plain"]);
         assert!(plan.inherited_via.is_empty());
+    }
+
+    #[test]
+    fn set_types_uses_explicit_list_bypassing_tree() {
+        let e = read_only_engine();
+        // application/x-not-in-any-category is not in the tree, but mpv won't
+        // declare it; video/mp4 is declared. Declared ones become set_types,
+        // undeclared ones are skipped — same partition rules as `set`.
+        let list = vec!["video/mp4".to_string(), "application/x-uncategorized".to_string()];
+        let plan = e
+            .set_types("mpv", &list, SetOptions { dry_run: true, ..Default::default() })
+            .unwrap();
+        assert_eq!(plan.target, "(stdin)");
+        assert_eq!(plan.set_types, vec!["video/mp4"]);
+        assert_eq!(plan.skipped_types, vec!["application/x-uncategorized"]);
+        assert!(!plan.written);
+    }
+
+    #[test]
+    fn set_types_canonicalizes_and_dedupes() {
+        let e = read_only_engine();
+        // image/jpg is an alias of image/jpeg; force so declaration doesn't gate it.
+        let list = vec!["image/jpg".to_string(), "image/jpeg".to_string()];
+        let plan = e
+            .set_types("mpv", &list, SetOptions { force: true, dry_run: true, ..Default::default() })
+            .unwrap();
+        assert_eq!(plan.set_types, vec!["image/jpeg"]); // deduped to one canonical
+    }
+
+    #[test]
+    fn set_types_empty_candidates_errors() {
+        let e = read_only_engine();
+        let list = vec!["application/x-uncategorized".to_string()];
+        let err = e
+            .set_types("mpv", &list, SetOptions { dry_run: true, ..Default::default() })
+            .unwrap_err();
+        assert!(matches!(err, Error::AppHandlesNothingUnderUmbrella { .. }));
     }
 }
 
