@@ -9,6 +9,7 @@ pub mod error;
 pub mod paths;
 pub mod mimedb;
 pub mod appindex;
+pub mod desktop;
 pub mod defaults;
 pub mod categories;
 pub mod writer;
