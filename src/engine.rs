@@ -845,14 +845,33 @@ impl Engine {
         Ok(file)
     }
 
-    /// `unset <mimetype>`: remove the user default for the (canonicalized) type.
-    /// Returns whether a write occurred (false if there was nothing to remove).
+    /// Remove the user default for `mime`. Returns whether the user file changed.
     pub fn unset(&self, mime: &str) -> Result<bool> {
-        let canon = self.mimedb.canonicalize(&MimeType::new(mime));
-        crate::writer::write_user_defaults(
-            &self.roots.user_mimeapps(),
-            &[crate::writer::Edit::Unset(canon)],
-        )
+        Ok(self.unset_many(std::slice::from_ref(&mime.to_string()))?[0].1)
+    }
+
+    /// Remove user defaults for each of `mimes` (alias-canonicalized), in one
+    /// batched write. Returns `(canonical_mime, removed)` per input, where
+    /// `removed` is whether the USER mimeapps.list had that default (i.e. the
+    /// write actually dropped it). Deletes are batched; a type absent from the
+    /// user file is reported `removed: false` and changes nothing.
+    pub fn unset_many(&self, mimes: &[String]) -> Result<Vec<(String, bool)>> {
+        let user = self.roots.user_mimeapps();
+        // User-file-only view (NOT the merged precedence chain) so `removed`
+        // reflects what this write can actually drop.
+        let user_defaults = Defaults::load(&[user.clone()])?;
+        let canon: Vec<MimeType> = mimes
+            .iter()
+            .map(|m| self.mimedb.canonicalize(&MimeType::new(m.as_str())))
+            .collect();
+        let results: Vec<(String, bool)> = canon
+            .iter()
+            .map(|t| (t.to_string(), user_defaults.current_default(t).is_some()))
+            .collect();
+        let edits: Vec<crate::writer::Edit> =
+            canon.into_iter().map(crate::writer::Edit::Unset).collect();
+        crate::writer::write_user_defaults(&user, &edits)?;
+        Ok(results)
     }
 }
 
@@ -1034,6 +1053,31 @@ mod write_tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(!content.contains("video/mp4="));
         assert!(!e.unset("video/mp4").unwrap());
+    }
+
+    #[test]
+    fn unset_many_reports_per_type_removed() {
+        let (e, path) = engine_with_temp_config("unset-many");
+        let list = vec![
+            "video/mp4".to_string(),       // present in fixture → removed
+            "image/png".to_string(),       // not a user default → not removed
+        ];
+        let results = e.unset_many(&list).unwrap();
+        assert_eq!(results, vec![
+            ("video/mp4".to_string(), true),
+            ("image/png".to_string(), false),
+        ]);
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(!content.contains("video/mp4="));
+    }
+
+    #[test]
+    fn unset_many_canonicalizes_keys() {
+        let (e, _path) = engine_with_temp_config("unset-many-canon");
+        // image/jpg is an alias; it isn't a user default, so removed == false,
+        // but the reported mime is the canonical image/jpeg.
+        let results = e.unset_many(&["image/jpg".to_string()]).unwrap();
+        assert_eq!(results, vec![("image/jpeg".to_string(), false)]);
     }
 
     #[test]
