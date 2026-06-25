@@ -45,6 +45,11 @@ madft set mpv Media            # scope to a category (only types mpv declares)
 madft set mpv video/mp4        # set one type
 madft set swayimg --no-clobber # fill only image types that have no default yet
 madft unset video/mp4          # remove a user default
+
+# Pipe a computed list of types (newline-delimited) into set/unset:
+madft app firefox --json | jq -r '.types[] | select(.category==null) | .mime' \
+  | madft set firefox - --no-clobber   # set firefox for its uncategorized types
+madft types Media.Video | madft unset -   # clear defaults for every video type
 ```
 
 Add `--json` to any command for machine-readable output.
@@ -60,8 +65,8 @@ Add `--json` to any command for machine-readable output.
 | `app <id>` | One app's mimetypes: those it declares **and** those it's the current default for (even undeclared ones, flagged `declares: false` / `(not declared)` and marked `DEFAULT`), plus the category each falls in. |
 | `app <id> desktop [fields…]` | Parse the app's `.desktop` file. With no fields, dumps all sections and keys in file order (use `--json` for machine output). With field names (case-sensitive, from `[Desktop Entry]`), prints just those raw values one per line — handy for scripts without `jq`. |
 | `get <mimetype>` | The bare current default id (empty if unset). Scriptable. |
-| `set <app> [PATH\|mimetype] [--types a,b] [-f/--force] [--no-clobber] [--exact] [--dry-run]` | Set `app` as default for the umbrella's types it handles — declared **or** reachable via a parent type. `--exact` restricts to literally-declared types; `--force` overrides entirely; `--no-clobber` fills only unset; `--dry-run` previews. |
-| `unset <mimetype>` | Remove the user default for a type. |
+| `set <app> [PATH\|mimetype\|-] [--types a,b] [-f/--force] [--no-clobber] [--exact] [--dry-run]` | Set `app` as default for the umbrella's types it handles — declared **or** reachable via a parent type. A `-` target (or piped stdin with no target) reads a **newline-delimited mimetype list from stdin**, which becomes the operand set directly (bypasses the category tree — good for uncategorized types); incompatible with `--types`. `--exact` restricts to literally-declared types; `--force` overrides entirely; `--no-clobber` fills only unset; `--dry-run` previews. |
+| `unset [mimetype\|-]` | Remove the user default for a type. A `-` argument (or piped stdin with no argument) removes the default for **each mimetype on stdin** (newline-delimited), reporting per type. |
 | `init [-f/--force]` | Write the built-in default category tree to `~/.local/share/madft/categories.toml` for editing (no-op if it exists, unless `--force`). |
 
 Exit codes: `0` success, `1` on an operational error (unknown path/app, guard), `2` on a usage error.
