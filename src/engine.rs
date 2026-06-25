@@ -859,7 +859,7 @@ impl Engine {
         let user = self.roots.user_mimeapps();
         // User-file-only view (NOT the merged precedence chain) so `removed`
         // reflects what this write can actually drop.
-        let user_defaults = Defaults::load(&[user.clone()])?;
+        let user_defaults = Defaults::load(std::slice::from_ref(&user))?;
         let canon: Vec<MimeType> = mimes
             .iter()
             .map(|m| self.mimedb.canonicalize(&MimeType::new(m.as_str())))
