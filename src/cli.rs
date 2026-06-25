@@ -65,8 +65,8 @@ pub enum Command {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Remove the user default for a mimetype.
-    Unset { mimetype: String },
+    /// Remove the user default for a mimetype, or for each mimetype on stdin.
+    Unset { mimetype: Option<String> },
     /// Print the bare current default for a mimetype (scriptable).
     Get { mimetype: String },
     /// Write the built-in default category tree to ~/.local/share/madft/categories.toml.
@@ -212,13 +212,46 @@ fn run_command(
             }
         }
         Command::Unset { mimetype } => {
-            let wrote = engine.unset(mimetype)?;
-            if json {
-                to_json(&serde_json::json!({ "unset": mimetype, "written": wrote }))
-            } else if wrote {
-                format!("unset {mimetype}")
+            if stdin_is_source(mimetype.as_deref(), stdin_is_tty) {
+                let list = read_type_lines(stdin)?;
+                if list.is_empty() {
+                    return Err(Error::EmptyTypeList);
+                }
+                let results = engine.unset_many(&list)?;
+                if json {
+                    let items: Vec<_> = results
+                        .iter()
+                        .map(|(mime, removed)| serde_json::json!({ "mime": mime, "removed": removed }))
+                        .collect();
+                    let removed_count = results.iter().filter(|(_, r)| *r).count();
+                    to_json(&serde_json::json!({ "unset": items, "removed_count": removed_count }))
+                } else {
+                    results
+                        .iter()
+                        .map(|(mime, removed)| {
+                            if *removed {
+                                format!("unset {mime}")
+                            } else {
+                                format!("{mime}: no user default to remove")
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
             } else {
-                format!("{mimetype}: no user default to remove")
+                match mimetype {
+                    None => return Err(Error::MissingMimetype),
+                    Some(mimetype) => {
+                        let wrote = engine.unset(mimetype)?;
+                        if json {
+                            to_json(&serde_json::json!({ "unset": mimetype, "written": wrote }))
+                        } else if wrote {
+                            format!("unset {mimetype}")
+                        } else {
+                            format!("{mimetype}: no user default to remove")
+                        }
+                    }
+                }
             }
         }
         Command::Get { mimetype } => {
@@ -852,6 +885,75 @@ mod tests {
         assert_eq!(out.code, 1);
         let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
         assert_eq!(v["error"]["kind"], "conflicting-type-source");
+    }
+
+    /// An engine whose config_home is a fresh temp dir seeded with one default,
+    /// so `unset` can write without touching committed fixtures.
+    fn engine_writable(tag: &str) -> Engine {
+        let f = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let cfg = std::env::temp_dir().join(format!("madft-cli-{tag}"));
+        let _ = std::fs::remove_dir_all(&cfg);
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(
+            cfg.join("mimeapps.list"),
+            "[Default Applications]\nvideo/mp4=mpv.desktop\n",
+        )
+        .unwrap();
+        let roots = Roots {
+            data_home: f.join("engine"),
+            data_dirs: vec![f.clone()],
+            config_home: cfg,
+            config_dirs: vec![],
+        };
+        Engine::load(&roots, &[]).unwrap()
+    }
+
+    #[test]
+    fn unset_stdin_list_json_per_type() {
+        // temp config has video/mp4=mpv.desktop; image/png has no user default.
+        let e = engine_writable("unset-stdin-json");
+        let cmd = Command::Unset { mimetype: Some("-".to_string()) };
+        let mut input = b"video/mp4\nimage/png\n".as_slice();
+        let out = execute_with_stdin(&e, &cmd, true, false, &mut input, false);
+        assert_eq!(out.code, 0);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(v["unset"][0]["mime"], "video/mp4");
+        assert_eq!(v["unset"][0]["removed"], true);
+        assert_eq!(v["unset"][1]["mime"], "image/png");
+        assert_eq!(v["unset"][1]["removed"], false);
+        assert_eq!(v["removed_count"], 1);
+    }
+
+    #[test]
+    fn unset_stdin_list_human_per_line() {
+        let e = engine_writable("unset-stdin-human");
+        let cmd = Command::Unset { mimetype: None };
+        let mut input = b"video/mp4\nimage/png\n".as_slice();
+        let out = execute_with_stdin(&e, &cmd, false, false, &mut input, false);
+        assert_eq!(out.code, 0);
+        assert_eq!(out.stdout, "unset video/mp4\nimage/png: no user default to remove");
+    }
+
+    #[test]
+    fn unset_single_mimetype_unchanged_json() {
+        // Single real arg keeps today's {unset, written} shape byte-for-byte.
+        // image/png has no default in the temp config => no write, written:false.
+        let e = engine_writable("unset-single");
+        let cmd = Command::Unset { mimetype: Some("image/png".to_string()) };
+        let out = execute(&e, &cmd, true, false);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(v["unset"], "image/png");
+        assert_eq!(v["written"], false);
+    }
+
+    #[test]
+    fn unset_no_arg_on_tty_errors() {
+        let cmd = Command::Unset { mimetype: None };
+        // is_tty = true, no positional => missing-mimetype.
+        let out = execute_with_stdin(&engine(), &cmd, true, false, &mut std::io::empty(), true);
+        assert_eq!(out.code, 1);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(v["error"]["kind"], "missing-mimetype");
     }
 
     #[test]
