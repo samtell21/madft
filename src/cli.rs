@@ -110,6 +110,20 @@ fn parse_type_lines(input: &str) -> Vec<String> {
         .collect()
 }
 
+/// Whether the operand list should be read from stdin: an explicit `-` target,
+/// or no positional target on a non-TTY (piped) stdin.
+fn stdin_is_source(positional: Option<&str>, is_tty: bool) -> bool {
+    matches!(positional, Some("-")) || (positional.is_none() && !is_tty)
+}
+
+/// Read all of stdin and parse it as a newline-delimited mimetype list. An I/O
+/// error converts to `Error::Io` via `?`.
+fn read_type_lines(stdin: &mut dyn Read) -> Result<Vec<String>, Error> {
+    let mut buf = String::new();
+    stdin.read_to_string(&mut buf)?;
+    Ok(parse_type_lines(&buf))
+}
+
 /// Stable kebab-case error kind for the `--json` envelope (spec §7).
 fn error_kind(e: &Error) -> &'static str {
     match e {
@@ -152,7 +166,6 @@ fn run_command(
     stdin: &mut dyn Read,
     stdin_is_tty: bool,
 ) -> Result<String, Error> {
-    let _ = (&mut *stdin, stdin_is_tty);
     let out = match command {
         Command::Ls { path } => {
             let r = engine.ls(path.as_deref(), show_all)?;
@@ -181,10 +194,22 @@ fn run_command(
             }
         }
         Command::Set { app, target, types, force, no_clobber, exact, dry_run } => {
-            let filter = if types.is_empty() { None } else { Some(types.as_slice()) };
             let opts = SetOptions { force: *force, no_clobber: *no_clobber, exact: *exact, show_all, dry_run: *dry_run };
-            let r = engine.set(app, target.as_deref(), filter, opts)?;
-            if json { to_json(&r) } else { human_set(&r) }
+            if stdin_is_source(target.as_deref(), stdin_is_tty) {
+                if !types.is_empty() {
+                    return Err(Error::ConflictingTypeSource);
+                }
+                let list = read_type_lines(stdin)?;
+                if list.is_empty() {
+                    return Err(Error::EmptyTypeList);
+                }
+                let r = engine.set_types(app, &list, opts)?;
+                if json { to_json(&r) } else { human_set(&r) }
+            } else {
+                let filter = if types.is_empty() { None } else { Some(types.as_slice()) };
+                let r = engine.set(app, target.as_deref(), filter, opts)?;
+                if json { to_json(&r) } else { human_set(&r) }
+            }
         }
         Command::Unset { mimetype } => {
             let wrote = engine.unset(mimetype)?;
@@ -736,6 +761,97 @@ mod tests {
         assert!(out.stdout.contains("nothing installed under Ghost"));
         let out_all = execute(&e, &Command::Ls { path: Some("Ghost".to_string()) }, false, true);
         assert!(out_all.stdout.contains("application/pdf"));
+    }
+
+    #[test]
+    fn set_dash_target_reads_types_from_stdin() {
+        let cmd = Command::Set {
+            app: "mpv".to_string(),
+            target: Some("-".to_string()),
+            types: vec![],
+            force: false,
+            no_clobber: false,
+            exact: false,
+            dry_run: true,
+        };
+        let mut input = b"video/mp4\naudio/mpeg\n".as_slice();
+        let out = execute_with_stdin(&engine(), &cmd, true, false, &mut input, false);
+        assert_eq!(out.code, 0);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(v["target"], "(stdin)");
+        assert_eq!(v["set_types"], serde_json::json!(["video/mp4", "audio/mpeg"]));
+    }
+
+    #[test]
+    fn set_implicit_piped_stdin_when_no_target() {
+        let cmd = Command::Set {
+            app: "mpv".to_string(),
+            target: None,
+            types: vec![],
+            force: false,
+            no_clobber: false,
+            exact: false,
+            dry_run: true,
+        };
+        let mut input = b"video/mp4\n".as_slice();
+        // stdin_is_tty = false => implicit trigger.
+        let out = execute_with_stdin(&engine(), &cmd, true, false, &mut input, false);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(v["set_types"], serde_json::json!(["video/mp4"]));
+    }
+
+    #[test]
+    fn set_real_target_ignores_stdin() {
+        let cmd = Command::Set {
+            app: "mpv".to_string(),
+            target: Some("Media".to_string()),
+            types: vec![],
+            force: false,
+            no_clobber: false,
+            exact: false,
+            dry_run: true,
+        };
+        // Even with piped stdin, a real target wins and stdin is untouched.
+        let mut input = b"video/mp4\n".as_slice();
+        let out = execute_with_stdin(&engine(), &cmd, true, false, &mut input, false);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(v["target"], "Media");
+    }
+
+    #[test]
+    fn set_empty_stdin_errors() {
+        let cmd = Command::Set {
+            app: "mpv".to_string(),
+            target: Some("-".to_string()),
+            types: vec![],
+            force: false,
+            no_clobber: false,
+            exact: false,
+            dry_run: true,
+        };
+        let mut input = b"\n   \n".as_slice();
+        let out = execute_with_stdin(&engine(), &cmd, true, false, &mut input, false);
+        assert_eq!(out.code, 1);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(v["error"]["kind"], "empty-type-list");
+    }
+
+    #[test]
+    fn set_types_flag_plus_stdin_conflicts() {
+        let cmd = Command::Set {
+            app: "mpv".to_string(),
+            target: Some("-".to_string()),
+            types: vec!["video/mp4".to_string()],
+            force: false,
+            no_clobber: false,
+            exact: false,
+            dry_run: true,
+        };
+        let mut input = b"audio/mpeg\n".as_slice();
+        let out = execute_with_stdin(&engine(), &cmd, true, false, &mut input, false);
+        assert_eq!(out.code, 1);
+        let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(v["error"]["kind"], "conflicting-type-source");
     }
 
     #[test]
