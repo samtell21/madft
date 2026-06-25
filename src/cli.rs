@@ -829,6 +829,7 @@ mod tests {
         let mut input = b"video/mp4\n".as_slice();
         // stdin_is_tty = false => implicit trigger.
         let out = execute_with_stdin(&engine(), &cmd, true, false, &mut input, false);
+        assert_eq!(out.code, 0);
         let v: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
         assert_eq!(v["set_types"], serde_json::json!(["video/mp4"]));
     }

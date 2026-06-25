@@ -772,6 +772,7 @@ impl Engine {
             if filter.as_ref().is_some_and(|f| !f.contains(t)) {
                 continue;
             }
+            // Inheritance-aware handling, unless --exact restricts to exact declares.
             let handled = if opts.exact {
                 self.appindex.declares(app_id, t)
             } else {
@@ -799,6 +800,7 @@ impl Engine {
             (candidates, Vec::new())
         };
 
+        // Provenance: set_types matched via an ancestor (not exactly declared).
         let inherited_via: Vec<InheritedSet> = set_types
             .iter()
             .filter(|t| !self.appindex.declares(app_id, t))
