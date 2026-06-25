@@ -3,6 +3,8 @@
 //! (ptui) shells out to (spec §1, §5). `run()` is the binary entry point;
 //! `execute()` is the testable core that returns rendered output + an exit code.
 
+use std::io::{IsTerminal, Read};
+
 use clap::{Parser, Subcommand};
 
 use crate::engine::{AppReport, AppsResult, Engine, LsResult, SetOptions, SetPlan, TypeInfo};
@@ -142,7 +144,15 @@ fn render_error(e: &Error, json: bool) -> Outcome {
 }
 
 /// Dispatch one command and render its stdout (or propagate an engine error).
-fn run_command(engine: &Engine, command: &Command, json: bool, show_all: bool) -> Result<String, Error> {
+fn run_command(
+    engine: &Engine,
+    command: &Command,
+    json: bool,
+    show_all: bool,
+    stdin: &mut dyn Read,
+    stdin_is_tty: bool,
+) -> Result<String, Error> {
+    let _ = (&mut *stdin, stdin_is_tty);
     let out = match command {
         Command::Ls { path } => {
             let r = engine.ls(path.as_deref(), show_all)?;
@@ -199,12 +209,26 @@ fn run_command(engine: &Engine, command: &Command, json: bool, show_all: bool) -
     Ok(out)
 }
 
-/// Run a command against the engine and capture the rendered output + exit code.
-pub fn execute(engine: &Engine, command: &Command, json: bool, show_all: bool) -> Outcome {
-    match run_command(engine, command, json, show_all) {
+/// Run a command against the engine, with an injectable stdin (reader + TTY
+/// status), and capture rendered output + exit code.
+pub fn execute_with_stdin(
+    engine: &Engine,
+    command: &Command,
+    json: bool,
+    show_all: bool,
+    stdin: &mut dyn Read,
+    stdin_is_tty: bool,
+) -> Outcome {
+    match run_command(engine, command, json, show_all, stdin, stdin_is_tty) {
         Ok(stdout) => Outcome { code: 0, stdout, stderr: String::new() },
         Err(e) => render_error(&e, json),
     }
+}
+
+/// Back-compat entry: no stdin available (empty reader, treated as a TTY), so no
+/// command reads from stdin. Used by tests and any non-piped caller.
+pub fn execute(engine: &Engine, command: &Command, json: bool, show_all: bool) -> Outcome {
+    execute_with_stdin(engine, command, json, show_all, &mut std::io::empty(), true)
 }
 
 fn human_ls(r: &LsResult, show_all: bool) -> String {
@@ -440,12 +464,17 @@ fn init_outcome(path: &std::path::Path, force: bool, json: bool) -> Outcome {
 pub fn run() -> i32 {
     let cli = Cli::parse();
     let roots = Roots::from_env();
+    let stdin = std::io::stdin();
+    let is_tty = stdin.is_terminal();
     let outcome = match &cli.command {
         Command::Init { force } => {
             init_outcome(&roots.data_home.join("madft/categories.toml"), *force, cli.json)
         }
         cmd => match Engine::load(&roots, &current_desktops()) {
-            Ok(engine) => execute(&engine, cmd, cli.json, cli.all),
+            Ok(engine) => {
+                let mut lock = stdin.lock();
+                execute_with_stdin(&engine, cmd, cli.json, cli.all, &mut lock, is_tty)
+            }
             Err(e) => render_error(&e, cli.json),
         },
     };
